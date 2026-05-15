@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import net from 'node:net'
+import path from 'node:path'
 import process from 'node:process'
 
 const host = '127.0.0.1'
@@ -11,6 +13,14 @@ const command = 'pnpm'
 const useShell = process.platform === 'win32'
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
+const hermesPath = path.join(
+  process.cwd(),
+  'vendor',
+  'hermes-agent',
+  '.venv',
+  process.platform === 'win32' ? 'Scripts' : 'bin',
+  process.platform === 'win32' ? 'hermes.exe' : 'hermes',
+)
 
 const isPortOpen = (port) =>
   new Promise((resolve) => {
@@ -129,6 +139,11 @@ process.once('SIGTERM', () => {
 })
 
 try {
+  if (!fs.existsSync(hermesPath)) {
+    console.log('[nova] preparing embedded Hermes Agent runtime...')
+    await runOnce(['setup:hermes'])
+  }
+
   console.log('[nova] compiling Electron main process...')
   await runOnce(['exec', 'tsc', '-p', 'tsconfig.electron.json'])
 

@@ -34,6 +34,13 @@ type HermesChatRequest = {
   requestId?: string
   prompt: string
   sessionId?: string | null
+  modelConfig?: {
+    provider?: string
+    apiKey?: string
+    baseUrl?: string
+    protocol?: string
+    activeModel?: string
+  }
 }
 
 type HermesChatResponse = {
@@ -46,7 +53,35 @@ const parseSessionId = (stderr: string) => {
   return match?.[1] ?? null
 }
 
-const chatWithHermes = ({ prompt, requestId, sessionId }: HermesChatRequest, emitChunk?: (chunk: string) => void) =>
+const getHermesProviderName = (provider?: string) => {
+  const providerMap: Record<string, string> = {
+    deepseek: 'deepseek',
+    kimi: 'moonshot',
+    glm: 'zai',
+    minimax: 'minimax',
+    mimo: 'mimo',
+  }
+
+  return provider ? providerMap[provider] ?? provider : undefined
+}
+
+const getProviderEnv = (config: HermesChatRequest['modelConfig']) => {
+  if (!config?.apiKey) {
+    return {}
+  }
+
+  const envByProvider: Record<string, Record<string, string>> = {
+    deepseek: { DEEPSEEK_API_KEY: config.apiKey },
+    kimi: { MOONSHOT_API_KEY: config.apiKey, KIMI_API_KEY: config.apiKey },
+    glm: { ZAI_API_KEY: config.apiKey, ZHIPUAI_API_KEY: config.apiKey },
+    minimax: { MINIMAX_API_KEY: config.apiKey },
+    mimo: { MIMO_API_KEY: config.apiKey },
+  }
+
+  return envByProvider[config.provider ?? ''] ?? {}
+}
+
+const chatWithHermes = ({ prompt, requestId, modelConfig }: HermesChatRequest, emitChunk?: (chunk: string) => void) =>
   new Promise<HermesChatResponse>((resolve, reject) => {
     const trimmedPrompt = prompt.trim()
 
@@ -55,10 +90,15 @@ const chatWithHermes = ({ prompt, requestId, sessionId }: HermesChatRequest, emi
       return
     }
 
-    const args = ['chat', '--query', trimmedPrompt, '--quiet', '--source', 'nova-desk']
+    const args = ['--oneshot', trimmedPrompt]
+    const hermesProvider = getHermesProviderName(modelConfig?.provider)
 
-    if (sessionId) {
-      args.push('--resume', sessionId)
+    if (hermesProvider) {
+      args.push('--provider', hermesProvider)
+    }
+
+    if (modelConfig?.activeModel) {
+      args.push('--model', modelConfig.activeModel)
     }
 
     const hermesCommand = getBundledHermesCommand()
@@ -67,7 +107,7 @@ const chatWithHermes = ({ prompt, requestId, sessionId }: HermesChatRequest, emi
     if (!fs.existsSync(hermesCommand)) {
       reject(
         new Error(
-          `Bundled Hermes Agent is not ready at ${hermesCommand}. Run "pnpm setup:hermes", then "pnpm hermes -- setup" and "pnpm hermes -- model".`,
+          `Bundled Hermes Agent runtime is missing at ${hermesCommand}. Restart with "pnpm start" so Nova Desk can prepare the embedded runtime automatically.`,
         ),
       )
       return
@@ -77,8 +117,16 @@ const chatWithHermes = ({ prompt, requestId, sessionId }: HermesChatRequest, emi
       cwd: process.cwd(),
       env: {
         ...process.env,
+        ...getProviderEnv(modelConfig),
         HERMES_HOME: hermesHome,
+        HERMES_INFERENCE_PROVIDER: hermesProvider ?? process.env.HERMES_INFERENCE_PROVIDER,
+        HERMES_INFERENCE_MODEL: modelConfig?.activeModel ?? process.env.HERMES_INFERENCE_MODEL,
+        OPENAI_API_KEY: modelConfig?.apiKey || process.env.OPENAI_API_KEY,
+        OPENAI_BASE_URL: modelConfig?.baseUrl || process.env.OPENAI_BASE_URL,
+        NO_COLOR: '1',
+        TERM: 'dumb',
         PYTHONIOENCODING: 'utf-8',
+        PYTHONUNBUFFERED: '1',
         PYTHONUTF8: '1',
       },
       shell: false,
@@ -109,7 +157,7 @@ const chatWithHermes = ({ prompt, requestId, sessionId }: HermesChatRequest, emi
       clearTimeout(timeout)
       reject(
         new Error(
-          `Failed to start bundled Hermes Agent at ${hermesCommand}. Run "pnpm setup:hermes" in this project, then configure the bundled agent model. ${error.message}`,
+          `Failed to start bundled Hermes Agent at ${hermesCommand}. Restart with "pnpm start" so Nova Desk can prepare the embedded runtime automatically. ${error.message}`,
         ),
       )
     })
@@ -118,10 +166,8 @@ const chatWithHermes = ({ prompt, requestId, sessionId }: HermesChatRequest, emi
       clearTimeout(timeout)
 
       const text = stdout.trim()
-      const nextSessionId = parseSessionId(stderr) || sessionId || null
-
       if (code === 0) {
-        resolve({ text, sessionId: nextSessionId })
+        resolve({ text, sessionId: null })
         return
       }
 

@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { useEffect } from 'react'
 import { applyTheme } from '../config/theme'
 import { useWorkspaceStore } from '../state/workspaceStore'
+import { SettingsModal } from './SettingsModal'
 import { Sidebar } from './Sidebar'
 
 export const AppLayout = () => {
@@ -19,6 +20,7 @@ export const AppLayout = () => {
           <Outlet />
         </main>
       </div>
+      <SettingsModal />
     </div>
   )
 }

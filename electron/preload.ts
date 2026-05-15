@@ -3,12 +3,13 @@ import { randomUUID } from 'node:crypto'
 
 contextBridge.exposeInMainWorld('novaDesk', {
   getRuntimeInfo: () => ipcRenderer.invoke('nova:runtime-info'),
-  chatWithHermes: (prompt: string, sessionId?: string | null) =>
-    ipcRenderer.invoke('hermes:chat', { prompt, sessionId }),
+  chatWithHermes: (prompt: string, sessionId?: string | null, modelConfig?: unknown) =>
+    ipcRenderer.invoke('hermes:chat', { prompt, sessionId, modelConfig }),
   chatWithHermesStream: (
     prompt: string,
     sessionId: string | null | undefined,
     onChunk: (chunk: string) => void,
+    modelConfig?: unknown,
   ) => {
     const requestId = randomUUID()
     const channel = `hermes:chat-stream:${requestId}:chunk`
@@ -17,7 +18,7 @@ contextBridge.exposeInMainWorld('novaDesk', {
     ipcRenderer.on(channel, listener)
 
     return ipcRenderer
-      .invoke('hermes:chat-stream', { prompt, requestId, sessionId })
+      .invoke('hermes:chat-stream', { prompt, requestId, sessionId, modelConfig })
       .finally(() => {
         ipcRenderer.removeListener(channel, listener)
       })
