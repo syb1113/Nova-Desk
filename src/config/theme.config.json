@@ -1,0 +1,37 @@
+{
+  "defaultMode": "light",
+  "modes": {
+    "dark": {
+      "primary": "#5B7CFA",
+      "secondary": "#7B61FF",
+      "accent": "#00C2FF",
+      "background": "#0B1020",
+      "card": "#090C11",
+      "border": "#263042",
+      "text": "#FFFFFF"
+    },
+    "light": {
+      "primary": "#4F6EF7",
+      "secondary": "#6D55F5",
+      "accent": "#00AEEF",
+      "background": "#F5F7FB",
+      "card": "#FFFFFF",
+      "border": "#D8E0F0",
+      "text": "#090C11"
+    }
+  },
+  "fonts": {
+    "sans": [
+      "Inter",
+      "ui-sans-serif",
+      "system-ui",
+      "sans-serif"
+    ],
+    "mono": [
+      "JetBrains Mono",
+      "SFMono-Regular",
+      "Consolas",
+      "monospace"
+    ]
+  }
+}

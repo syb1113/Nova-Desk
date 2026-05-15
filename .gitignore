@@ -1,0 +1,27 @@
+node_modules
+vendor/
+.DS_Store
+dist
+dist*
+out/
+.tmp/
+*.log
+.output
+*.local
+**/.vitepress/cache
+.cache
+.turbo
+.temp
+.stylelintcache
+.eslintcache
+
+yarn.lock
+package-lock.json
+.idea/
+auto-import.d.ts
+
+# ai rules
+.claude
+.cursor
+.codebuddy
+CLAUDE.md

@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: 79 110 247;
+  --color-secondary: 109 85 245;
+  --color-accent: 0 174 239;
+  --color-background: 245 247 251;
+  --color-card: 255 255 255;
+  --color-border: 216 224 240;
+  --color-text: 9 12 17;
+  --hex-primary: #4F6EF7;
+  --hex-secondary: #6D55F5;
+  --hex-accent: #00AEEF;
+  --hex-background: #F5F7FB;
+  --hex-card: #FFFFFF;
+  --hex-border: #D8E0F0;
+  --hex-text: #090C11;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: rgb(var(--color-background));
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
