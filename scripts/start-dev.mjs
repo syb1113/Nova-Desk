@@ -1,15 +1,18 @@
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import net from 'node:net'
 import process from 'node:process'
 
 const host = '127.0.0.1'
-const port = 5173
+const preferredPort = 5173
 const children = new Set()
 
 const command = 'pnpm'
 const useShell = process.platform === 'win32'
+const require = createRequire(import.meta.url)
+const electronPath = require('electron')
 
-const isPortOpen = () =>
+const isPortOpen = (port) =>
   new Promise((resolve) => {
     const socket = net.createConnection({ host, port })
 
@@ -24,11 +27,11 @@ const isPortOpen = () =>
     })
   })
 
-const waitForPort = async (timeoutMs = 30_000) => {
+const waitForPort = async (port, timeoutMs = 30_000) => {
   const startedAt = Date.now()
 
   while (Date.now() - startedAt < timeoutMs) {
-    if (await isPortOpen()) {
+    if (await isPortOpen(port)) {
       return
     }
 
@@ -37,6 +40,30 @@ const waitForPort = async (timeoutMs = 30_000) => {
 
   throw new Error(`Timed out waiting for http://${host}:${port}`)
 }
+
+const findAvailablePort = (startPort) =>
+  new Promise((resolve, reject) => {
+    const probe = (port) => {
+      const server = net.createServer()
+
+      server.once('error', (error) => {
+        if (error.code === 'EADDRINUSE') {
+          probe(port + 1)
+          return
+        }
+
+        reject(error)
+      })
+
+      server.once('listening', () => {
+        server.close(() => resolve(port))
+      })
+
+      server.listen(port, host)
+    }
+
+    probe(startPort)
+  })
 
 const runOnce = (args) =>
   new Promise((resolve, reject) => {
@@ -69,6 +96,22 @@ const runLongLived = (args) => {
   return child
 }
 
+const runElectron = (devServerUrl) => {
+  const child = spawn(electronPath, ['.'], {
+    env: {
+      ...process.env,
+      NOVA_DEV_SERVER_URL: devServerUrl,
+    },
+    stdio: 'inherit',
+    shell: false,
+  })
+
+  children.add(child)
+  child.once('exit', () => children.delete(child))
+
+  return child
+}
+
 const cleanup = () => {
   for (const child of children) {
     child.kill()
@@ -86,18 +129,21 @@ process.once('SIGTERM', () => {
 })
 
 try {
+  console.log('[nova] compiling Electron main process...')
   await runOnce(['exec', 'tsc', '-p', 'tsconfig.electron.json'])
 
-  const viteAlreadyRunning = await isPortOpen()
+  const port = await findAvailablePort(preferredPort)
+  const devServerUrl = `http://${host}:${port}`
 
-  if (!viteAlreadyRunning) {
-    runLongLived(['dev:web', '--', '--host', host, '--port', String(port)])
-    await waitForPort()
-  }
+  console.log(`[nova] starting Vite at ${devServerUrl}...`)
+  runLongLived(['exec', 'vite', '--host', host, '--port', String(port), '--strictPort'])
+  await waitForPort(port)
 
-  const electron = runLongLived(['start'])
+  console.log('[nova] launching Electron...')
+  const electron = runElectron(devServerUrl)
 
   electron.once('exit', (code) => {
+    console.log(`[nova] Electron exited with code ${code ?? 0}`)
     cleanup()
     process.exit(code ?? 0)
   })

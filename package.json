@@ -11,7 +11,7 @@
     "hermes": "node scripts/hermes.mjs",
     "preview": "vite preview",
     "setup:hermes": "node scripts/setup-hermes.mjs",
-    "start": "electron .",
+    "start": "node ./scripts/start-dev.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {

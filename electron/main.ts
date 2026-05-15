@@ -6,6 +6,7 @@ import path from 'node:path'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
+const devServerUrl = process.env.NOVA_DEV_SERVER_URL || 'http://127.0.0.1:5173'
 const hermesExecutableName = process.platform === 'win32' ? 'hermes.exe' : 'hermes'
 const hermesBinDir = process.platform === 'win32' ? 'Scripts' : 'bin'
 
@@ -151,7 +152,12 @@ const createMainWindow = async () => {
   })
 
   if (isDev) {
-    await window.loadURL('http://127.0.0.1:5173')
+    try {
+      await window.loadURL(devServerUrl)
+    } catch (error) {
+      console.error(`Failed to load Vite dev server at ${devServerUrl}. Run pnpm start to launch both Vite and Electron.`, error)
+      throw error
+    }
     window.webContents.openDevTools({ mode: 'detach' })
     return
   }
