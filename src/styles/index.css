@@ -26,6 +26,26 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-color: rgb(148 163 184 / 0.55) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: rgb(148 163 184 / 0.45);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.58);
 }
 
 html,
@@ -45,6 +65,140 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: rgb(var(--color-primary));
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-outlined:focus,
+.ant-input-outlined-focused {
+  border-color: #d9dfe8 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-input-outlined:hover {
+  border-color: #cfd6e2 !important;
+}
+
+.ant-modal-container {
+  padding: 12px !important;
+}
+
+.top-icon-action {
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.7);
+  background: rgb(255 255 255 / 0.9);
+  color: #273142;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 0.1);
+  backdrop-filter: blur(12px);
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.top-icon-action:hover {
+  border-color: rgb(var(--color-primary) / 0.3);
+  background: #ffffff;
+  color: rgb(var(--color-primary));
+  box-shadow: 0 14px 34px rgb(79 110 247 / 0.18);
+  transform: translateY(-1px);
+}
+
+.top-icon-action svg {
+  display: block;
+}
+
+.history-row-action {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  color: #6f7785;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.history-row-action:hover {
+  background: #ffffff;
+  color: rgb(var(--color-primary));
+}
+
+.history-row-action-danger {
+  color: #dc2626;
+}
+
+.history-row-action-danger:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.history-row-action svg {
+  display: block;
+}
+
+.delete-chat-confirm .ant-modal-content {
+  overflow: hidden;
+  border-radius: 18px;
+  padding: 0;
+}
+
+.delete-chat-confirm .ant-modal-confirm-body-wrapper {
+  padding: 10px 0 0;
+}
+
+.delete-chat-confirm .ant-modal-confirm-body {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.delete-chat-confirm .ant-modal-confirm-paragraph {
+  max-width: none;
+}
+
+.delete-chat-confirm .ant-modal-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 24px;
+  border-top: 1px solid #e5e7eb;
+  padding: 18px 14px 0;
+}
+
+.delete-chat-confirm .ant-btn {
+  height: 44px;
+  min-width: 94px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.delete-chat-confirm .ant-btn-primary.ant-btn-dangerous {
+  min-width: 110px;
+  background: #f43f4a;
+  box-shadow: none;
+}
+
+.delete-chat-confirm .ant-btn-primary.ant-btn-dangerous:hover {
+  background: #e6323d;
 }
 
 @keyframes thinking-wave {

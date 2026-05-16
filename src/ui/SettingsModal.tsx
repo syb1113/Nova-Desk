@@ -1,5 +1,9 @@
 import {
   Bot,
+  Eye,
+  EyeOff,
+  Pencil,
+  Trash2,
   Info,
   KeyRound,
   Mail,
@@ -48,6 +52,11 @@ export const SettingsModal = () => {
   const [testPrompt, setTestPrompt] = useState("");
   const [testOutput, setTestOutput] = useState("");
   const [isTesting, setIsTesting] = useState(false);
+  const [isAddModelOpen, setIsAddModelOpen] = useState(false);
+  const [newModelName, setNewModelName] = useState("");
+  const [newModelSupportsVision, setNewModelSupportsVision] = useState(false);
+  const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   const selectedMeta = getProviderMeta(selectedProvider);
   const selectedConfig = drafts[selectedProvider];
@@ -58,6 +67,19 @@ export const SettingsModal = () => {
     }),
     [selectedConfig, selectedProvider],
   );
+  const newModelId = useMemo(
+    () =>
+      newModelName
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9._:-]/g, ""),
+    [newModelName],
+  );
+  const canSaveNewModel =
+    newModelId.length > 0 &&
+    (editingModelId === newModelId ||
+      !selectedConfig.models.includes(newModelId));
 
   if (!isOpen) {
     return null;
@@ -81,6 +103,71 @@ export const SettingsModal = () => {
     setActiveProvider(selectedProvider);
     setActiveModel(drafts[selectedProvider].activeModel);
     setOpen(false);
+  };
+
+  const openAddModel = () => {
+    setEditingModelId(null);
+    setNewModelName("");
+    setNewModelSupportsVision(false);
+    setIsAddModelOpen(true);
+  };
+
+  const openEditModel = (model: string) => {
+    setEditingModelId(model);
+    setNewModelName(model);
+    setNewModelSupportsVision(false);
+    setIsAddModelOpen(true);
+  };
+
+  const closeAddModel = () => {
+    setIsAddModelOpen(false);
+    setEditingModelId(null);
+    setNewModelName("");
+    setNewModelSupportsVision(false);
+  };
+
+  const handleSaveModel = () => {
+    if (!canSaveNewModel) {
+      return;
+    }
+
+    if (editingModelId) {
+      const nextModels = selectedConfig.models.map((model) =>
+        model === editingModelId ? newModelId : model,
+      );
+
+      updateDraft({
+        models: nextModels,
+        activeModel:
+          selectedConfig.activeModel === editingModelId
+            ? newModelId
+            : selectedConfig.activeModel,
+      });
+      closeAddModel();
+      return;
+    }
+
+    updateDraft({
+      models: [...selectedConfig.models, newModelId],
+      activeModel: newModelId,
+    });
+    closeAddModel();
+  };
+
+  const handleDeleteModel = (model: string) => {
+    const nextModels = selectedConfig.models.filter((item) => item !== model);
+
+    if (nextModels.length === 0) {
+      return;
+    }
+
+    updateDraft({
+      models: nextModels,
+      activeModel:
+        selectedConfig.activeModel === model
+          ? nextModels[0]
+          : selectedConfig.activeModel,
+    });
   };
 
   const handleTest = async (event: FormEvent<HTMLFormElement>) => {
@@ -110,8 +197,11 @@ export const SettingsModal = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-sm">
-      <div className="grid h-[720px] w-[1080px] grid-cols-[240px_330px_minmax(0,1fr)] overflow-hidden rounded-2xl border border-white/70 bg-[#f8f9fb] shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-sm"
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <div className="grid h-[min(720px,calc(100vh-24px))] w-[min(1080px,calc(100vw-24px))] grid-cols-[240px_330px_minmax(0,1fr)] overflow-hidden rounded-2xl border border-white/70 bg-[#f8f9fb] shadow-2xl">
         <aside className="border-r border-[#dfe3ea] px-5 py-6">
           <h2 className="mb-5 text-xl font-semibold text-[#151922]">设置</h2>
           <nav className="space-y-1">
@@ -193,7 +283,7 @@ export const SettingsModal = () => {
           </div>
         </section>
 
-        <section className="flex min-w-0 flex-col px-6 py-6">
+        <section className="flex min-h-0 min-w-0 flex-col px-6 py-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-[#151922]">
@@ -213,20 +303,31 @@ export const SettingsModal = () => {
             </button>
           </div>
 
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+            <div className="space-y-4">
             <label className="block">
               <span className="mb-1.5 block text-sm text-[#2f3540]">
                 API Key
               </span>
-              <input
-                type="password"
-                className="h-10 w-full rounded-xl border border-[#dfe3ea] bg-[#eef1f5] px-3 text-sm outline-none focus:border-primary"
-                placeholder="输入你的 API Key"
-                value={selectedConfig.apiKey}
-                onChange={(event) =>
-                  updateDraft({ apiKey: event.target.value })
-                }
-              />
+              <span className="flex h-10 w-full items-center rounded-xl border border-[#dfe3ea] bg-[#eef1f5] px-3 focus-within:border-primary">
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
+                  placeholder="输入你的 API Key"
+                  value={selectedConfig.apiKey}
+                  onChange={(event) =>
+                    updateDraft({ apiKey: event.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                  className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-[#737b88] hover:bg-white hover:text-primary"
+                  onClick={() => setShowApiKey((visible) => !visible)}
+                >
+                  {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </span>
             </label>
 
             <label className="block">
@@ -269,43 +370,59 @@ export const SettingsModal = () => {
                 <button
                   type="button"
                   className="text-xs text-primary"
-                  onClick={() =>
-                    updateDraft({
-                      models: [...selectedConfig.models, "new-model"],
-                      activeModel: "new-model",
-                    })
-                  }
+                  onClick={openAddModel}
                 >
                   添加模型
                 </button>
               </div>
-              <div className="space-y-2">
+              <div className="max-h-40 space-y-2 overflow-y-auto overscroll-contain pr-1">
                 {selectedConfig.models.map((model) => (
-                  <button
+                  <div
                     key={model}
-                    type="button"
                     className={`flex h-10 w-full items-center justify-between rounded-xl border px-3 text-sm ${
                       selectedConfig.activeModel === model
                         ? "border-primary bg-primary/10"
                         : "border-[#dfe3ea] bg-white"
                     }`}
-                    onClick={() => updateDraft({ activeModel: model })}
                   >
-                    <span className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      onClick={() => updateDraft({ activeModel: model })}
+                    >
                       <span className="h-2 w-2 rounded-full bg-green-500" />
-                      {model}
-                    </span>
-                    <span className="rounded-md bg-[#eef1f5] px-2 py-1 text-xs text-[#737b88]">
-                      {model}
-                    </span>
-                  </button>
+                      <span className="truncate">{model}</span>
+                    </button>
+                    <div className="ml-2 flex shrink-0 items-center gap-1">
+                      <span className="rounded-md bg-[#eef1f5] px-2 py-1 text-xs text-[#737b88]">
+                        {model}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`修改模型 ${model}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-primary/10"
+                        onClick={() => openEditModel(model)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`删除模型 ${model}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-red-300 disabled:hover:bg-transparent"
+                        disabled={selectedConfig.models.length <= 1}
+                        onClick={() => handleDeleteModel(model)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
-          </div>
+            </div>
 
           <form
-            className="mt-5 min-h-0 flex-1 rounded-xl border border-[#dfe3ea] bg-white p-3"
+            className="mt-5 rounded-xl border border-[#dfe3ea] bg-white p-3"
             onSubmit={handleTest}
           >
             <div className="mb-2 text-sm font-medium text-[#2f3540]">
@@ -330,8 +447,9 @@ export const SettingsModal = () => {
               </button>
             </div>
           </form>
+          </div>
 
-          <div className="flex justify-end gap-3 border-t border-[#dfe3ea] pt-4">
+          <div className="shrink-0 flex justify-end gap-3 border-t border-[#dfe3ea] pt-4">
             <button
               type="button"
               className="rounded-xl border border-[#dfe3ea] bg-white px-5 py-2 text-sm"
@@ -349,6 +467,76 @@ export const SettingsModal = () => {
           </div>
         </section>
       </div>
+      {isAddModelOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/25">
+          <div className="w-[560px] rounded-2xl border border-[#e5e7eb] bg-[#f8f9fb] shadow-2xl">
+            <div className="flex items-center justify-between px-5 pb-3 pt-5">
+              <h3 className="text-lg font-semibold text-[#171b24]">
+                {editingModelId ? "修改模型" : "添加新模型"}
+              </h3>
+              <button
+                type="button"
+                aria-label="Close add model"
+                className="rounded-md p-1.5 text-[#6f7785] hover:bg-[#eef1f5]"
+                onClick={closeAddModel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 pb-4">
+              <label className="block">
+                <span className="mb-1.5 block text-sm text-[#687182]">模型名称</span>
+                <input
+                  autoFocus
+                  className="h-11 w-full rounded-2xl border border-[#f59e0b] bg-[#f1f3f6] px-4 text-sm text-[#1f2430] outline-none"
+                  placeholder="GPT-4"
+                  value={newModelName}
+                  onChange={(event) => setNewModelName(event.target.value)}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-sm text-[#687182]">模型ID</span>
+                <input
+                  className="h-11 w-full rounded-2xl border border-[#dde2ea] bg-[#eceff3] px-4 text-sm text-[#8a94a3] outline-none"
+                  placeholder="gpt-4"
+                  value={newModelId}
+                  disabled
+                />
+              </label>
+
+              <label className="inline-flex items-center gap-2 text-sm text-[#687182]">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-[#9ca3af]"
+                  checked={newModelSupportsVision}
+                  onChange={(event) => setNewModelSupportsVision(event.target.checked)}
+                />
+                支持图像输入
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-3 px-5 pb-5 pt-2">
+              <button
+                type="button"
+                className="h-10 rounded-xl border border-[#dfe3ea] bg-white px-5 text-sm text-[#2f3540] hover:bg-[#f3f5f8]"
+                onClick={closeAddModel}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="h-10 rounded-xl bg-primary px-5 text-sm text-white disabled:bg-primary/35"
+                disabled={!canSaveNewModel}
+                onClick={handleSaveModel}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

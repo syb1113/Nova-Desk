@@ -43,6 +43,7 @@ const findPython = async () => {
     process.platform === 'win32'
       ? [
           ['py', ['-3.11', '--version']],
+          ['py', ['-3', '--version']],
           ['python', ['--version']],
         ]
       : [
@@ -54,7 +55,7 @@ const findPython = async () => {
   for (const [command, args] of candidates) {
     try {
       await run(command, args)
-      return { command, prefixArgs: command === 'py' ? ['-3.11'] : [] }
+      return { command, prefixArgs: command === 'py' ? [args[0]] : [] }
     } catch {
       // Try next candidate.
     }
@@ -82,6 +83,7 @@ if (!fs.existsSync(pythonExe)) {
   await run(python.command, [...python.prefixArgs, '-m', 'venv', venvDir])
 }
 
+await run(pythonExe, ['-m', 'ensurepip', '--upgrade', '--default-pip'])
 await run(pythonExe, ['-m', 'pip', 'install', '--upgrade', 'pip'])
 await run(pythonExe, ['-m', 'pip', 'install', '-e', '.[cli,pty]'], { cwd: hermesDir })
 
