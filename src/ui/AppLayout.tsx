@@ -3,8 +3,8 @@ import { useEffect } from 'react'
 import { ConfigProvider, theme } from 'antd'
 import { applyTheme } from '../config/theme'
 import { useWorkspaceStore } from '../state/workspaceStore'
+import { LeftIconMenu } from './LeftIconMenu'
 import { SettingsModal } from './SettingsModal'
-import { TopIconMenu } from './TopIconMenu'
 
 export const AppLayout = () => {
   const activeTheme = useWorkspaceStore((state) => state.activeTheme)
@@ -24,9 +24,9 @@ export const AppLayout = () => {
         },
       }}
     >
-      <div className="min-h-screen bg-background text-text">
-        <TopIconMenu />
-        <main className="flex min-h-screen min-w-0 flex-col bg-card">
+      <div className="flex h-screen overflow-hidden bg-background text-text">
+        <LeftIconMenu />
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
           <Outlet />
         </main>
         <SettingsModal />

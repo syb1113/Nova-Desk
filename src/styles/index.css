@@ -93,12 +93,13 @@ input[type='radio'] {
   padding: 12px !important;
 }
 
-.top-icon-action {
+.left-rail-action {
   display: inline-flex;
   height: 2.75rem;
   width: 2.75rem;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   border-radius: 9999px;
   border: 1px solid rgb(255 255 255 / 0.7);
   background: rgb(255 255 255 / 0.9);
@@ -113,16 +114,52 @@ input[type='radio'] {
     transform 180ms ease;
 }
 
-.top-icon-action:hover {
+.left-rail-action:hover {
   border-color: rgb(var(--color-primary) / 0.3);
   background: #ffffff;
   color: rgb(var(--color-primary));
   box-shadow: 0 14px 34px rgb(79 110 247 / 0.18);
-  transform: translateY(-1px);
+  transform: translateX(1px);
 }
 
-.top-icon-action svg {
+.left-rail-action-active,
+.left-rail-action-active:hover {
+  border-color: rgb(var(--color-primary) / 0.28);
+  background: #ffffff;
+  color: rgb(var(--color-primary));
+}
+
+.left-rail-action svg {
   display: block;
+}
+
+.workspace-chip {
+  display: inline-flex;
+  min-height: 1.625rem;
+  align-items: center;
+  border-radius: 0.375rem;
+  border: 1px solid #dfe4ec;
+  background: #ffffff;
+  padding: 0 0.55rem;
+  color: #667085;
+}
+
+.history-popover {
+  z-index: 50;
+}
+
+.history-popover .ant-popover-inner {
+  border: 1px solid #dfe4ec;
+  border-radius: 0.875rem;
+  box-shadow: 0 18px 42px rgb(15 23 42 / 0.14);
+}
+
+.history-popover .ant-popover-inner-content {
+  padding: 0.875rem;
+}
+
+.history-panel {
+  width: min(340px, calc(100vw - 104px));
 }
 
 .history-row-action {
@@ -158,7 +195,7 @@ input[type='radio'] {
 
 .delete-chat-confirm .ant-modal-content {
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 12px;
   padding: 0;
 }
 

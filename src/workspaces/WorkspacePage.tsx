@@ -233,11 +233,11 @@ export const WorkspacePage = () => {
   }
 
   return (
-    <section className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-[#fbfbfa]">
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6">
+    <section className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-[#f8f9fb]">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-8">
         <div
           className={`min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth ${
-            hasMessages ? 'px-1 pb-6 pt-24' : 'flex items-center justify-center pt-20'
+            hasMessages ? 'px-1 pb-6 pt-10' : 'flex items-center justify-center'
           }`}
         >
           {hasMessages ? (
@@ -255,9 +255,12 @@ export const WorkspacePage = () => {
             </div>
           ) : (
             <div className="w-full max-w-3xl">
-              <h1 className="mb-8 text-center text-3xl font-semibold tracking-normal text-[#14171f]">
-                要在 Nova Desk 中构建什么？
-              </h1>
+              <div className="mb-7 text-center">
+                <div className="mb-3 text-xs font-medium uppercase tracking-[0.16em] text-[#7b8494]">Nova Desk</div>
+                <h1 className="text-3xl font-semibold tracking-normal text-[#14171f]">
+                  要在本地工作区处理什么？
+                </h1>
+              </div>
               <ChatComposer
                 activeModel={activeModel}
                 activeModelOption={activeModelOption}
@@ -276,7 +279,7 @@ export const WorkspacePage = () => {
         </div>
 
         {hasMessages ? (
-          <div className="shrink-0 bg-[#fbfbfa] pb-6 pt-3">
+          <div className="shrink-0 bg-[#f8f9fb] pb-6 pt-3">
             <ChatComposer
               activeModel={activeModel}
               activeModelOption={activeModelOption}
@@ -345,12 +348,12 @@ const ChatComposer = ({
 
   return (
     <form
-      className="relative overflow-visible rounded-2xl border border-[#e2e4e8] bg-white shadow-[0_16px_50px_rgb(17_24_39_/_0.08)]"
+      className="relative overflow-visible rounded-xl border border-[#dfe4ec] bg-white shadow-[0_10px_28px_rgb(17_24_39_/_0.06)]"
       onSubmit={onSubmit}
     >
       <textarea
         ref={inputRef}
-        className="min-h-20 max-h-44 w-full resize-none rounded-t-2xl border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#b5bac3]"
+        className="min-h-20 max-h-44 w-full resize-none rounded-t-xl border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1]"
         placeholder="向 Nova Desk 询问任何事情。输入 @ 使用插件或提及文件"
         rows={3}
         value={input}
@@ -362,8 +365,8 @@ const ChatComposer = ({
           }
         }}
       />
-      <div className="flex h-12 items-center justify-between rounded-b-2xl border-t border-[#eef0f3] bg-[#f3f4f6] px-4">
-        <div className="flex items-center gap-2 text-xs text-[#717782]">
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 rounded-b-xl border-t border-[#edf0f4] bg-[#f4f6f8] px-4 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-[#717782]">
           <button
             type="button"
             aria-label="Add context"
@@ -371,16 +374,16 @@ const ChatComposer = ({
           >
             <Plus size={16} />
           </button>
-          <span>Nova Desk</span>
-          <span>本地模式</span>
-          <span>develop</span>
+          <span className="workspace-chip">Nova Desk</span>
+          <span className="workspace-chip">本地模式</span>
+          <span className="workspace-chip">develop</span>
         </div>
         <div className="flex items-center gap-2">
           <div ref={modelMenuRef} className="relative">
             {configuredModelOptions.length === 0 ? (
               <button
                 type="button"
-                className="inline-flex h-8 items-center rounded-full bg-white px-3 text-sm text-[#4b5563] hover:text-primary"
+                className="inline-flex h-8 items-center rounded-md bg-white px-3 text-sm text-[#4b5563] hover:text-primary"
                 onClick={onOpenSettings}
               >
                 配置模型
@@ -390,7 +393,7 @@ const ChatComposer = ({
                 type="button"
                 aria-haspopup={hasMultipleModels ? 'listbox' : undefined}
                 aria-expanded={hasMultipleModels ? isModelMenuOpen : undefined}
-                className="inline-flex h-8 max-w-[220px] items-center gap-1 rounded-full bg-[#e8ebf0] px-4 text-sm text-[#1f2430] transition hover:bg-white"
+                className="inline-flex h-8 max-w-[220px] items-center gap-1 rounded-md bg-[#e8ebf0] px-3 text-sm text-[#1f2430] transition hover:bg-white"
                 onClick={() => {
                   if (hasMultipleModels) {
                     setIsModelMenuOpen((open) => !open)
@@ -405,7 +408,7 @@ const ChatComposer = ({
             {hasMultipleModels && isModelMenuOpen ? (
               <div
                 role="listbox"
-                className="absolute bottom-10 left-0 z-20 w-64 overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white py-2 shadow-[0_18px_45px_rgb(15_23_42_/_0.18)]"
+                className="absolute bottom-10 left-0 z-20 w-64 overflow-hidden rounded-xl border border-[#e5e7eb] bg-white py-2 shadow-[0_18px_45px_rgb(15_23_42_/_0.14)]"
               >
                 {configuredModelOptions.map((option) => {
                   const selected =
@@ -446,7 +449,7 @@ const ChatComposer = ({
           <button
             type="submit"
             aria-label="Send message"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#7d828a] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#69707b] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
             disabled={!canSend}
           >
             {isStreaming ? <Loader2 className="animate-spin" size={17} /> : <Send size={16} />}
@@ -465,7 +468,7 @@ const MessageBlock = ({ message, isStreaming }: { message: ChatMessage; isStream
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-6 ${
+        className={`max-w-[78%] rounded-xl px-4 py-3 text-sm leading-6 ${
           isUser
             ? 'whitespace-pre-wrap bg-primary text-white'
             : isSystem
