@@ -48,6 +48,18 @@ type HermesChatResponse = {
   sessionId: string | null
 }
 
+const getApiMode = (provider?: string, protocol?: string) => {
+  if (getHermesProviderName(provider) === 'xiaomi') {
+    return 'chat_completions'
+  }
+
+  if (protocol === 'anthropic') {
+    return 'anthropic_messages'
+  }
+
+  return 'chat_completions'
+}
+
 const parseSessionId = (stderr: string) => {
   const match = stderr.match(/session_id:\s*([^\s]+)/i)
   return match?.[1] ?? null
@@ -59,7 +71,7 @@ const getHermesProviderName = (provider?: string) => {
     kimi: 'moonshot',
     glm: 'zai',
     minimax: 'minimax',
-    mimo: 'mimo',
+    mimo: 'xiaomi',
   }
 
   return provider ? providerMap[provider] ?? provider : undefined
@@ -75,10 +87,56 @@ const getProviderEnv = (config: HermesChatRequest['modelConfig']) => {
     kimi: { MOONSHOT_API_KEY: config.apiKey, KIMI_API_KEY: config.apiKey },
     glm: { ZAI_API_KEY: config.apiKey, ZHIPUAI_API_KEY: config.apiKey },
     minimax: { MINIMAX_API_KEY: config.apiKey },
-    mimo: { MIMO_API_KEY: config.apiKey },
+    mimo: { MIMO_API_KEY: config.apiKey, XIAOMI_API_KEY: config.apiKey },
   }
 
-  return envByProvider[config.provider ?? ''] ?? {}
+  const env = envByProvider[config.provider ?? ''] ?? {}
+
+  if (!config.baseUrl) {
+    return env
+  }
+
+  const baseUrlEnvByProvider: Record<string, Record<string, string>> = {
+    deepseek: { DEEPSEEK_BASE_URL: config.baseUrl },
+    kimi: { MOONSHOT_BASE_URL: config.baseUrl, KIMI_BASE_URL: config.baseUrl },
+    glm: { GLM_BASE_URL: config.baseUrl, ZAI_BASE_URL: config.baseUrl },
+    minimax: { MINIMAX_BASE_URL: config.baseUrl },
+    mimo: { MIMO_BASE_URL: config.baseUrl, XIAOMI_BASE_URL: config.baseUrl },
+  }
+
+  return {
+    ...env,
+    ...(baseUrlEnvByProvider[config.provider ?? ''] ?? {}),
+  }
+}
+
+const writeRequestHermesHome = (baseHermesHome: string, config: HermesChatRequest['modelConfig']) => {
+  if (!config?.provider || !config.apiKey?.trim() || !config.activeModel?.trim()) {
+    return baseHermesHome
+  }
+
+  const hermesProvider = getHermesProviderName(config.provider) ?? config.provider
+  const requestHome = fs.mkdtempSync(path.join(app.getPath('temp'), 'nova-hermes-'))
+  const providerEnv = getProviderEnv(config)
+  const envLines = Object.entries(providerEnv)
+    .filter(([, value]) => value.trim().length > 0)
+    .map(([key, value]) => `${key}=${value.replace(/\r?\n/g, '')}`)
+
+  fs.writeFileSync(path.join(requestHome, '.env'), `${envLines.join('\n')}\n`, 'utf8')
+  fs.writeFileSync(
+    path.join(requestHome, 'config.yaml'),
+    [
+      'model:',
+      `  provider: ${hermesProvider}`,
+      `  default: ${config.activeModel.trim()}`,
+      `  base_url: ${config.baseUrl?.trim() || ''}`,
+      `  api_mode: ${getApiMode(config.provider, config.protocol)}`,
+      '',
+    ].join('\n'),
+    'utf8',
+  )
+
+  return requestHome
 }
 
 const chatWithHermes = ({ prompt, requestId, modelConfig }: HermesChatRequest, emitChunk?: (chunk: string) => void) =>
@@ -102,7 +160,19 @@ const chatWithHermes = ({ prompt, requestId, modelConfig }: HermesChatRequest, e
     }
 
     const hermesCommand = getBundledHermesCommand()
-    const hermesHome = getBundledHermesHome()
+    const bundledHermesHome = getBundledHermesHome()
+    const hermesHome = writeRequestHermesHome(bundledHermesHome, modelConfig)
+    const cleanupHermesHome = () => {
+      if (hermesHome === bundledHermesHome) {
+        return
+      }
+
+      try {
+        fs.rmSync(hermesHome, { recursive: true, force: true })
+      } catch {
+        // Best-effort cleanup for per-request Hermes config.
+      }
+    }
 
     if (!fs.existsSync(hermesCommand)) {
       reject(
@@ -138,6 +208,7 @@ const chatWithHermes = ({ prompt, requestId, modelConfig }: HermesChatRequest, e
 
     const timeout = setTimeout(() => {
       child.kill()
+      cleanupHermesHome()
       reject(new Error('Hermes Agent request timed out.'))
     }, 300_000)
 
@@ -155,6 +226,7 @@ const chatWithHermes = ({ prompt, requestId, modelConfig }: HermesChatRequest, e
 
     child.once('error', (error) => {
       clearTimeout(timeout)
+      cleanupHermesHome()
       reject(
         new Error(
           `Failed to start bundled Hermes Agent at ${hermesCommand}. Restart with "pnpm start" so Nova Desk can prepare the embedded runtime automatically. ${error.message}`,
@@ -164,9 +236,15 @@ const chatWithHermes = ({ prompt, requestId, modelConfig }: HermesChatRequest, e
 
     child.once('exit', (code) => {
       clearTimeout(timeout)
+      cleanupHermesHome()
 
       const text = stdout.trim()
       if (code === 0) {
+        if (!text) {
+          reject(new Error((stderr || 'Hermes Agent exited successfully but returned an empty response.').trim()))
+          return
+        }
+
         resolve({ text, sessionId: null })
         return
       }

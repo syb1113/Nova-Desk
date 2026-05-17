@@ -16,6 +16,12 @@ export type ModelRuntimeConfig = ModelProviderConfig & {
   provider: ModelProviderId
 }
 
+export type ConfiguredModelOption = {
+  provider: ModelProviderId
+  providerName: string
+  model: string
+}
+
 export const modelProviders = [
   {
     id: 'deepseek',
@@ -57,10 +63,10 @@ export const modelProviders = [
     id: 'mimo',
     name: 'Mimo',
     icon: Brain,
-    defaultBaseUrl: 'https://api.mimo.ai/v1',
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
     defaultProtocol: 'openai',
-    defaultModel: 'mimo-chat',
-    models: ['mimo-chat', 'mimo-reasoner'],
+    defaultModel: 'mimo-v2.5-pro',
+    models: ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-pro', 'mimo-v2-omni', 'mimo-v2-flash'],
   },
 ] as const satisfies ReadonlyArray<{
   id: ModelProviderId
@@ -88,3 +94,21 @@ export const defaultModelConfigs = Object.fromEntries(
 
 export const getProviderMeta = (providerId: ModelProviderId) =>
   modelProviders.find((provider) => provider.id === providerId) ?? modelProviders[0]
+
+export const isProviderConfigured = (config: ModelProviderConfig) =>
+  config.enabled && config.apiKey.trim().length > 0 && config.baseUrl.trim().length > 0
+
+export const getConfiguredModelOptions = (configs: Record<ModelProviderId, ModelProviderConfig>) =>
+  modelProviders.flatMap((provider) => {
+    const config = configs[provider.id]
+
+    if (!config || !isProviderConfigured(config)) {
+      return []
+    }
+
+    return Array.from(new Set(config.models.map((model) => model.trim()).filter(Boolean))).map((model) => ({
+      provider: provider.id,
+      providerName: provider.name,
+      model,
+    }))
+  })

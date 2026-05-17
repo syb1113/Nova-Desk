@@ -12,8 +12,9 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  getConfiguredModelOptions,
   getProviderMeta,
   modelProviders,
   type ApiProtocol,
@@ -43,6 +44,9 @@ export const SettingsModal = () => {
     (state) => state.setActiveProvider,
   );
   const setActiveModel = useWorkspaceStore((state) => state.setActiveModel);
+  const setActiveModelSelection = useWorkspaceStore(
+    (state) => state.setActiveModelSelection,
+  );
   const updateModelConfig = useWorkspaceStore(
     (state) => state.updateModelConfig,
   );
@@ -60,6 +64,8 @@ export const SettingsModal = () => {
 
   const selectedMeta = getProviderMeta(selectedProvider);
   const selectedConfig = drafts[selectedProvider];
+  const selectedProtocol =
+    selectedProvider === "mimo" ? "openai" : selectedConfig.protocol;
   const runtimeConfig = useMemo(
     () => ({
       ...selectedConfig,
@@ -81,6 +87,15 @@ export const SettingsModal = () => {
     (editingModelId === newModelId ||
       !selectedConfig.models.includes(newModelId));
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    setSelectedProvider(activeProvider);
+    setDrafts(modelConfigs);
+  }, [activeProvider, isOpen, modelConfigs]);
+
   if (!isOpen) {
     return null;
   }
@@ -97,11 +112,31 @@ export const SettingsModal = () => {
 
   const handleSave = () => {
     for (const provider of modelProviders) {
-      updateModelConfig(provider.id, drafts[provider.id]);
+      updateModelConfig(provider.id, {
+        ...drafts[provider.id],
+        protocol: provider.id === "mimo" ? "openai" : drafts[provider.id].protocol,
+      });
     }
 
-    setActiveProvider(selectedProvider);
-    setActiveModel(drafts[selectedProvider].activeModel);
+    const configuredOptions = getConfiguredModelOptions(drafts);
+    const selectedModel = drafts[selectedProvider].activeModel;
+    const selectedOption = configuredOptions.find(
+      (option) =>
+        option.provider === selectedProvider && option.model === selectedModel,
+    );
+    const currentOption = configuredOptions.find(
+      (option) =>
+        option.provider === activeProvider && option.model === activeModel,
+    );
+    const nextOption = selectedOption ?? currentOption ?? configuredOptions[0];
+
+    if (nextOption) {
+      setActiveModelSelection(nextOption.provider, nextOption.model);
+    } else {
+      setActiveProvider(selectedProvider);
+      setActiveModel(selectedModel);
+    }
+
     setOpen(false);
   };
 
@@ -271,7 +306,33 @@ export const SettingsModal = () => {
                     </span>
                   </span>
                   <span
-                    className={`h-5 w-9 rounded-full p-0.5 ${config.enabled ? "bg-primary" : "bg-[#e7ebf0]"}`}
+                    role="switch"
+                    aria-checked={config.enabled}
+                    tabIndex={0}
+                    className={`h-5 w-9 rounded-full p-0.5 transition ${config.enabled ? "bg-primary" : "bg-[#e7ebf0]"}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDrafts((current) => ({
+                        ...current,
+                        [provider.id]: {
+                          ...current[provider.id],
+                          enabled: !current[provider.id].enabled,
+                        },
+                      }));
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setDrafts((current) => ({
+                          ...current,
+                          [provider.id]: {
+                            ...current[provider.id],
+                            enabled: !current[provider.id].enabled,
+                          },
+                        }));
+                      }
+                    }}
                   >
                     <span
                       className={`block h-4 w-4 rounded-full bg-white transition ${config.enabled ? "translate-x-4" : ""}`}
@@ -353,7 +414,8 @@ export const SettingsModal = () => {
                   >
                     <input
                       type="radio"
-                      checked={selectedConfig.protocol === protocol}
+                      checked={selectedProtocol === protocol}
+                      disabled={selectedProvider === "mimo"}
                       onChange={() => updateDraft({ protocol })}
                     />
                     {protocol === "anthropic"
@@ -362,6 +424,11 @@ export const SettingsModal = () => {
                   </label>
                 ))}
               </div>
+              {selectedProvider === "mimo" ? (
+                <div className="mt-1 text-xs text-[#707784]">
+                  Mimo 固定使用 OpenAI 兼容格式。
+                </div>
+              ) : null}
             </div>
 
             <div>

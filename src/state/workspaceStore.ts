@@ -35,6 +35,7 @@ type WorkspaceStore = {
   renameChat: (chatId: string, title: string) => void
   setActiveChat: (chatId: string) => void
   setActiveModel: (model: string) => void
+  setActiveModelSelection: (provider: ModelProviderId, model: string) => void
   setActiveProvider: (provider: ModelProviderId) => void
   setActiveTheme: (theme: ThemeMode) => void
   setChatHermesSessionId: (chatId: string, sessionId: string | null) => void
@@ -127,6 +128,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         })),
       setActiveChat: (activeChatId) => set({ activeChatId }),
       setActiveModel: (activeModel) => set({ activeModel }),
+      setActiveModelSelection: (activeProvider, activeModel) =>
+        set((state) => ({
+          activeProvider,
+          activeModel,
+          modelConfigs: {
+            ...state.modelConfigs,
+            [activeProvider]: {
+              ...state.modelConfigs[activeProvider],
+              activeModel,
+            },
+          },
+        })),
       setActiveProvider: (activeProvider) =>
         set((state) => ({
           activeProvider,

@@ -78,6 +78,7 @@ export const TopIconMenu = () => {
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const filteredChats = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -107,16 +108,12 @@ export const TopIconMenu = () => {
   };
 
   const startRename = (chat: ChatSession) => {
-    if (editingId === chat.id) {
-      return;
-    }
-
     setEditingId(chat.id);
     setDraftTitle(chat.title);
   };
 
   const commitRename = () => {
-    if (!editingId) {
+    if (!editingId || !draftTitle.trim()) {
       return;
     }
 
@@ -126,6 +123,7 @@ export const TopIconMenu = () => {
   };
 
   const handleDelete = (chat: ChatSession) => {
+    setDeleteConfirmOpen(true);
     Modal.confirm({
       centered: true,
       icon: (
@@ -154,6 +152,7 @@ export const TopIconMenu = () => {
       },
       className: "delete-chat-confirm",
       width: 480,
+      afterClose: () => setDeleteConfirmOpen(false),
       onOk: () => {
         deleteChat(chat.id);
 
@@ -161,6 +160,7 @@ export const TopIconMenu = () => {
           navigate("/workspaces/default");
         }
       },
+      onCancel: () => setDeleteConfirmOpen(false),
     });
   };
 
@@ -359,7 +359,13 @@ export const TopIconMenu = () => {
           open={historyOpen}
           placement="bottomLeft"
           trigger="click"
-          onOpenChange={setHistoryOpen}
+          onOpenChange={(open) => {
+            if (!open && (editingId || deleteConfirmOpen)) {
+              return;
+            }
+
+            setHistoryOpen(open);
+          }}
         >
           <button
             type="button"

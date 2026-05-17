@@ -1,8 +1,9 @@
-import { Loader2, Mic, Plus, Send } from 'lucide-react'
+import { Check, ChevronDown, Loader2, Mic, Plus, Send } from 'lucide-react'
 import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { streamHermesMessage, type ChatMessage } from '../api/hermes'
+import { getConfiguredModelOptions, type ConfiguredModelOption } from '../config/modelProviders'
 import { useWorkspaceStore } from '../state/workspaceStore'
 
 const createMessage = (role: ChatMessage['role'], content: string): ChatMessage => ({
@@ -41,11 +42,15 @@ const nextTypewriterChunk = (text: string) => {
 
 export const WorkspacePage = () => {
   const activeModel = useWorkspaceStore((state) => state.activeModel)
+  const activeProvider = useWorkspaceStore((state) => state.activeProvider)
   const activeChatId = useWorkspaceStore((state) => state.activeChatId)
   const activeChat = useWorkspaceStore((state) => state.activeChat())
   const getActiveModelConfig = useWorkspaceStore((state) => state.getActiveModelConfig)
+  const modelConfigs = useWorkspaceStore((state) => state.modelConfigs)
   const appendMessage = useWorkspaceStore((state) => state.appendMessage)
   const renameChat = useWorkspaceStore((state) => state.renameChat)
+  const setActiveModelSelection = useWorkspaceStore((state) => state.setActiveModelSelection)
+  const setSettingsOpen = useWorkspaceStore((state) => state.setSettingsOpen)
   const updateMessage = useWorkspaceStore((state) => state.updateMessage)
   const [input, setInput] = useState('')
   const [streamingChatIds, setStreamingChatIds] = useState<Set<string>>(() => new Set())
@@ -57,6 +62,14 @@ export const WorkspacePage = () => {
   const receivedChunkRefs = useRef(new Map<string, boolean>())
   const hasMessages = activeChat.messages.length > 0
   const activeChatIsStreaming = streamingChatIds.has(activeChat.id)
+  const configuredModelOptions = useMemo(() => getConfiguredModelOptions(modelConfigs), [modelConfigs])
+  const activeModelOption = useMemo(
+    () =>
+      configuredModelOptions.find(
+        (option) => option.provider === activeProvider && option.model === activeModel,
+      ) ?? configuredModelOptions[0],
+    [activeModel, activeProvider, configuredModelOptions],
+  )
 
   const canSend = useMemo(() => input.trim().length > 0 && !activeChatIsStreaming, [activeChatIsStreaming, input])
   const lastMessageContent = activeChat.messages.at(-1)?.content ?? ''
@@ -247,11 +260,15 @@ export const WorkspacePage = () => {
               </h1>
               <ChatComposer
                 activeModel={activeModel}
+                activeModelOption={activeModelOption}
                 canSend={canSend}
+                configuredModelOptions={configuredModelOptions}
                 input={input}
                 inputRef={inputRef}
                 isStreaming={activeChatIsStreaming}
                 onChange={setInput}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onSelectModel={(option) => setActiveModelSelection(option.provider, option.model)}
                 onSubmit={handleSubmit}
               />
             </div>
@@ -262,11 +279,15 @@ export const WorkspacePage = () => {
           <div className="shrink-0 bg-[#fbfbfa] pb-6 pt-3">
             <ChatComposer
               activeModel={activeModel}
+              activeModelOption={activeModelOption}
               canSend={canSend}
+              configuredModelOptions={configuredModelOptions}
               input={input}
               inputRef={inputRef}
               isStreaming={activeChatIsStreaming}
               onChange={setInput}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onSelectModel={(option) => setActiveModelSelection(option.provider, option.model)}
               onSubmit={handleSubmit}
             />
           </div>
@@ -278,73 +299,163 @@ export const WorkspacePage = () => {
 
 const ChatComposer = ({
   activeModel,
+  activeModelOption,
   canSend,
+  configuredModelOptions,
   input,
   inputRef,
   isStreaming,
   onChange,
+  onOpenSettings,
+  onSelectModel,
   onSubmit,
 }: {
   activeModel: string
+  activeModelOption?: ConfiguredModelOption
   canSend: boolean
+  configuredModelOptions: ConfiguredModelOption[]
   input: string
   inputRef: RefObject<HTMLTextAreaElement | null>
   isStreaming: boolean
   onChange: (value: string) => void
+  onOpenSettings: () => void
+  onSelectModel: (option: ConfiguredModelOption) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
-}) => (
-  <form
-    className="overflow-hidden rounded-2xl border border-[#e2e4e8] bg-white shadow-[0_16px_50px_rgb(17_24_39_/_0.08)]"
-    onSubmit={onSubmit}
-  >
-    <textarea
-      ref={inputRef}
-      className="min-h-20 max-h-44 w-full resize-none border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#b5bac3]"
-      placeholder="可向 Nova Desk 询问任何事情。输入 @ 使用插件或提及文件"
-      rows={3}
-      value={input}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault()
-          event.currentTarget.form?.requestSubmit()
-        }
-      }}
-    />
-    <div className="flex h-12 items-center justify-between border-t border-[#eef0f3] bg-[#f3f4f6] px-4">
-      <div className="flex items-center gap-2 text-xs text-[#717782]">
-        <button
-          type="button"
-          aria-label="Add context"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-white"
-        >
-          <Plus size={16} />
-        </button>
-        <span>Nova Desk</span>
-        <span>本地模式</span>
-        <span>develop</span>
+}) => {
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
+  const modelMenuRef = useRef<HTMLDivElement | null>(null)
+  const hasMultipleModels = configuredModelOptions.length > 1
+  const currentModelLabel = activeModelOption?.model ?? activeModel
+
+  useEffect(() => {
+    if (!isModelMenuOpen) {
+      return
+    }
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!modelMenuRef.current?.contains(event.target as Node)) {
+        setIsModelMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick)
+  }, [isModelMenuOpen])
+
+  return (
+    <form
+      className="relative overflow-visible rounded-2xl border border-[#e2e4e8] bg-white shadow-[0_16px_50px_rgb(17_24_39_/_0.08)]"
+      onSubmit={onSubmit}
+    >
+      <textarea
+        ref={inputRef}
+        className="min-h-20 max-h-44 w-full resize-none rounded-t-2xl border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#b5bac3]"
+        placeholder="向 Nova Desk 询问任何事情。输入 @ 使用插件或提及文件"
+        rows={3}
+        value={input}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }
+        }}
+      />
+      <div className="flex h-12 items-center justify-between rounded-b-2xl border-t border-[#eef0f3] bg-[#f3f4f6] px-4">
+        <div className="flex items-center gap-2 text-xs text-[#717782]">
+          <button
+            type="button"
+            aria-label="Add context"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-white"
+          >
+            <Plus size={16} />
+          </button>
+          <span>Nova Desk</span>
+          <span>本地模式</span>
+          <span>develop</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div ref={modelMenuRef} className="relative">
+            {configuredModelOptions.length === 0 ? (
+              <button
+                type="button"
+                className="inline-flex h-8 items-center rounded-full bg-white px-3 text-sm text-[#4b5563] hover:text-primary"
+                onClick={onOpenSettings}
+              >
+                配置模型
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-haspopup={hasMultipleModels ? 'listbox' : undefined}
+                aria-expanded={hasMultipleModels ? isModelMenuOpen : undefined}
+                className="inline-flex h-8 max-w-[220px] items-center gap-1 rounded-full bg-[#e8ebf0] px-4 text-sm text-[#1f2430] transition hover:bg-white"
+                onClick={() => {
+                  if (hasMultipleModels) {
+                    setIsModelMenuOpen((open) => !open)
+                  }
+                }}
+              >
+                <span className="truncate">{currentModelLabel}</span>
+                {hasMultipleModels ? <ChevronDown size={15} /> : null}
+              </button>
+            )}
+
+            {hasMultipleModels && isModelMenuOpen ? (
+              <div
+                role="listbox"
+                className="absolute bottom-10 left-0 z-20 w-64 overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white py-2 shadow-[0_18px_45px_rgb(15_23_42_/_0.18)]"
+              >
+                {configuredModelOptions.map((option) => {
+                  const selected =
+                    activeModelOption?.provider === option.provider && activeModelOption.model === option.model
+
+                  return (
+                    <button
+                      key={`${option.provider}:${option.model}`}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={`flex w-full items-center justify-between px-5 py-3 text-left transition ${
+                        selected ? 'bg-[#f8fafc]' : 'hover:bg-[#f4f6f9]'
+                      }`}
+                      onClick={() => {
+                        onSelectModel(option)
+                        setIsModelMenuOpen(false)
+                      }}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-base leading-5 text-[#111827]">{option.model}</span>
+                        <span className="block truncate text-sm leading-5 text-[#6b7280]">{option.providerName}</span>
+                      </span>
+                      {selected ? <Check className="ml-3 shrink-0 text-primary" size={18} /> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            aria-label="Voice input"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#717782] hover:bg-white"
+          >
+            <Mic size={15} />
+          </button>
+          <button
+            type="submit"
+            aria-label="Send message"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#7d828a] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
+            disabled={!canSend}
+          >
+            {isStreaming ? <Loader2 className="animate-spin" size={17} /> : <Send size={16} />}
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-[#717782]">{activeModel}</span>
-        <button
-          type="button"
-          aria-label="Voice input"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#717782] hover:bg-white"
-        >
-          <Mic size={15} />
-        </button>
-        <button
-          type="submit"
-          aria-label="Send message"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#7d828a] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
-          disabled={!canSend}
-        >
-          {isStreaming ? <Loader2 className="animate-spin" size={17} /> : <Send size={16} />}
-        </button>
-      </div>
-    </div>
-  </form>
-)
+    </form>
+  )
+}
 
 const MessageBlock = ({ message, isStreaming }: { message: ChatMessage; isStreaming: boolean }) => {
   const isUser = message.role === 'user'
