@@ -39,7 +39,7 @@ export const modelProviders = [
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     defaultProtocol: 'openai',
     defaultModel: 'kimi-k2-0905-preview',
-    models: ['kimi-k2-0905-preview', 'moonshot-v1-8k', 'moonshot-v1-32k'],
+    models: ['kimi-k2-0905-preview', 'kimi-k2-0711-preview', 'moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-8k'],
   },
   {
     id: 'glm',
@@ -47,8 +47,8 @@ export const modelProviders = [
     icon: Sparkles,
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     defaultProtocol: 'openai',
-    defaultModel: 'glm-4.5',
-    models: ['glm-4.5', 'glm-4.5-air', 'glm-4-plus'],
+    defaultModel: 'glm-5-turbo',
+    models: ['glm-5-turbo', 'glm-5', 'glm-5.1', 'glm-4.7', 'glm-4.7-flash', 'glm-4.6', 'glm-4.5-air'],
   },
   {
     id: 'minimax',
@@ -56,8 +56,8 @@ export const modelProviders = [
     icon: Hexagon,
     defaultBaseUrl: 'https://api.minimax.chat/v1',
     defaultProtocol: 'openai',
-    defaultModel: 'MiniMax-M1',
-    models: ['MiniMax-M1', 'abab6.5s-chat', 'abab6.5g-chat'],
+    defaultModel: 'MiniMax-M2',
+    models: ['MiniMax-M2', 'MiniMax-M1', 'abab6.5s-chat', 'abab6.5g-chat'],
   },
   {
     id: 'mimo',

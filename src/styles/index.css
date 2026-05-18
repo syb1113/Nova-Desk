@@ -193,6 +193,21 @@ input[type='radio'] {
   display: block;
 }
 
+.history-action-popover {
+  z-index: 70;
+}
+
+.history-action-popover .ant-popover-inner {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  box-shadow: 0 16px 38px rgb(15 23 42 / 0.14);
+}
+
+.history-action-popover .ant-popover-inner-content {
+  padding: 0.25rem;
+}
+
 .delete-chat-confirm .ant-modal-content {
   overflow: hidden;
   border-radius: 12px;

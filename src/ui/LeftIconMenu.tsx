@@ -1,366 +1,365 @@
-import { addCollection, Icon } from '@iconify/react'
-import { icons as iconParkOutline } from '@iconify-json/icon-park-outline'
-import { Input, Modal, Popover, Tooltip } from 'antd'
-import { useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { useWorkspaceStore, type ChatSession } from '../state/workspaceStore'
-
-addCollection(iconParkOutline)
+import {
+  Archive,
+  Bot,
+  Briefcase,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Pencil,
+  Settings,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
+import { Input, Modal, Popover } from "antd";
+import { useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useWorkspaceStore, type ChatSession } from "../state/workspaceStore";
 
 type MenuItem = {
-  label: string
-  icon: string
-  to: string
-  panel?: string
-}
+  label: string;
+  icon: typeof Sparkles;
+  shortcut?: string;
+  to?: string;
+  panel?: string;
+  onClick?: () => void;
+};
 
-const workspacePath = '/workspaces/default'
-
-const menuItems: MenuItem[] = [
-  {
-    label: '技能管理',
-    icon: 'icon-park-outline:toolkit',
-    to: `${workspacePath}?panel=skills`,
-    panel: 'skills',
-  },
-  {
-    label: 'MCP 管理',
-    icon: 'icon-park-outline:connection-box',
-    to: `${workspacePath}?panel=mcp`,
-    panel: 'mcp',
-  },
-  {
-    label: '自动化',
-    icon: 'icon-park-outline:time',
-    to: `${workspacePath}?panel=automation`,
-    panel: 'automation',
-  },
-]
-
-const formatTime = (timestamp: number) => {
-  const diff = Date.now() - timestamp
-  const minute = 60 * 1000
-  const hour = 60 * minute
-  const day = 24 * hour
-
-  if (diff < hour) {
-    return `${Math.max(1, Math.floor(diff / minute))} 分钟前`
-  }
-
-  if (diff < day) {
-    return `${Math.floor(diff / hour)} 小时前`
-  }
-
-  return `${Math.floor(diff / day)} 天前`
-}
+const workspacePath = "/workspaces/default";
 
 const sortChats = (a: ChatSession, b: ChatSession) => {
   if (a.pinnedAt && b.pinnedAt) {
-    return a.pinnedAt - b.pinnedAt
+    return b.pinnedAt - a.pinnedAt;
   }
 
   if (a.pinnedAt) {
-    return -1
+    return -1;
   }
 
   if (b.pinnedAt) {
-    return 1
+    return 1;
   }
 
-  return b.updatedAt - a.updatedAt
-}
+  return b.updatedAt - a.updatedAt;
+};
 
 export const LeftIconMenu = () => {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const activeChatId = useWorkspaceStore((state) => state.activeChatId)
-  const chatSessions = useWorkspaceStore((state) => state.chatSessions)
-  const createChat = useWorkspaceStore((state) => state.createChat)
-  const deleteChat = useWorkspaceStore((state) => state.deleteChat)
-  const renameChat = useWorkspaceStore((state) => state.renameChat)
-  const setActiveChat = useWorkspaceStore((state) => state.setActiveChat)
-  const setSettingsOpen = useWorkspaceStore((state) => state.setSettingsOpen)
-  const toggleChatPinned = useWorkspaceStore((state) => state.toggleChatPinned)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draftTitle, setDraftTitle] = useState('')
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeChatId = useWorkspaceStore((state) => state.activeChatId);
+  const chatSessions = useWorkspaceStore((state) => state.chatSessions);
+  const createChat = useWorkspaceStore((state) => state.createChat);
+  const deleteChat = useWorkspaceStore((state) => state.deleteChat);
+  const renameChat = useWorkspaceStore((state) => state.renameChat);
+  const setActiveChat = useWorkspaceStore((state) => state.setActiveChat);
+  const setSettingsOpen = useWorkspaceStore((state) => state.setSettingsOpen);
+  const toggleChatPinned = useWorkspaceStore((state) => state.toggleChatPinned);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
 
-  const activePanel = new URLSearchParams(location.search).get('panel')
+  const activePanel = new URLSearchParams(location.search).get("panel");
+  const visibleChats = useMemo(
+    () =>
+      chatSessions.filter((chat) => chat.messages.length > 0).sort(sortChats),
+    [chatSessions],
+  );
 
-  const filteredChats = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase()
-    const chats = chatSessions.filter((chat) => chat.messages.length > 0).sort(sortChats)
-
-    if (!normalizedQuery) {
-      return chats
-    }
-
-    return chats.filter((chat) => chat.title.toLocaleLowerCase().includes(normalizedQuery))
-  }, [chatSessions, query])
-
-  const handleNewChat = () => {
-    createChat()
-    navigate(workspacePath)
-    setHistoryOpen(false)
-  }
+  const menuItems: MenuItem[] = [
+    {
+      label: "新建任务",
+      icon: MessageSquarePlus,
+      shortcut: "Ctrl+N",
+      onClick: () => {
+        createChat();
+        navigate(workspacePath);
+      },
+    },
+    {
+      label: "打开工作区",
+      icon: Briefcase,
+      shortcut: "Ctrl+O",
+      onClick: () => navigate(workspacePath),
+    },
+    {
+      label: "技能",
+      icon: Sparkles,
+      to: `${workspacePath}?panel=skills`,
+      panel: "skills",
+    },
+    {
+      label: "机器人",
+      icon: Bot,
+      to: `${workspacePath}?panel=automation`,
+      panel: "automation",
+    },
+  ];
 
   const handleSelectChat = (chatId: string) => {
-    setActiveChat(chatId)
-    navigate(workspacePath)
-    setHistoryOpen(false)
-  }
+    setActiveChat(chatId);
+    navigate(workspacePath);
+  };
 
   const startRename = (chat: ChatSession) => {
-    setEditingId(chat.id)
-    setDraftTitle(chat.title)
-  }
+    setEditingId(chat.id);
+    setDraftTitle(chat.title);
+  };
 
   const commitRename = () => {
-    if (!editingId || !draftTitle.trim()) {
-      return
+    if (!editingId) {
+      return;
     }
 
-    renameChat(editingId, draftTitle)
-    setEditingId(null)
-    setDraftTitle('')
-  }
+    const nextTitle = draftTitle.trim();
+    if (nextTitle) {
+      renameChat(editingId, nextTitle);
+    }
+
+    setEditingId(null);
+    setDraftTitle("");
+  };
 
   const handleDelete = (chat: ChatSession) => {
-    setDeleteConfirmOpen(true)
     Modal.confirm({
       centered: true,
-      icon: (
-        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 text-red-500">
-          <Icon icon="icon-park-outline:caution" width={21} height={21} />
-        </span>
-      ),
-      title: <span className="text-base font-semibold text-[#171b24]">确认删除会话</span>,
-      content: (
-        <div className="mt-2 text-sm leading-6 text-[#6b7280]">
-          此操作无法撤销，当前会话的所有消息记录将被永久删除。
-        </div>
-      ),
-      okText: '删除会话',
-      cancelText: '取消',
+      title: "确认删除会话",
+      content: "此操作无法撤销，当前会话的所有消息记录将被永久删除。",
+      okText: "删除",
+      cancelText: "取消",
       okButtonProps: {
         danger: true,
-        type: 'primary',
       },
-      cancelButtonProps: {
-        type: 'text',
-      },
-      className: 'delete-chat-confirm',
-      width: 460,
-      afterClose: () => setDeleteConfirmOpen(false),
       onOk: () => {
-        deleteChat(chat.id)
+        deleteChat(chat.id);
 
         if (chat.id === activeChatId) {
-          navigate(workspacePath)
+          navigate(workspacePath);
         }
       },
-      onCancel: () => setDeleteConfirmOpen(false),
-    })
-  }
-
-  const historyPanel = (
-    <div className="history-panel">
-      <div className="mb-3">
-        <div className="text-sm font-semibold text-[#171b24]">历史会话</div>
-        <div className="text-xs text-[#8a919d]">{filteredChats.length} 个本地会话</div>
-      </div>
-
-      <Input
-        allowClear
-        size="middle"
-        placeholder="搜索会话名称"
-        prefix={<Icon icon="icon-park-outline:search" width={16} height={16} />}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
-
-      <div className="mt-3 max-h-[420px] space-y-1 overflow-y-auto pr-1">
-        {filteredChats.length > 0 ? (
-          filteredChats.map((chat) => (
-            <div
-              key={chat.id}
-              className={`group rounded-lg border px-2 py-2 transition ${
-                chat.id === activeChatId ? 'border-primary/30 bg-primary/10' : 'border-transparent hover:bg-[#f4f6fa]'
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => {
-                    if (editingId !== chat.id) {
-                      handleSelectChat(chat.id)
-                    }
-                  }}
-                >
-                  {editingId === chat.id ? (
-                    <Input
-                      autoFocus
-                      size="small"
-                      value={draftTitle}
-                      onBlur={commitRename}
-                      onChange={(event) => setDraftTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') {
-                          setEditingId(null)
-                          setDraftTitle('')
-                        }
-                      }}
-                      onPressEnter={commitRename}
-                    />
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        {chat.pinnedAt ? (
-                          <Icon className="text-primary" icon="icon-park-outline:pushpin" width={14} height={14} />
-                        ) : null}
-                        <span className="block truncate text-sm font-medium text-[#252b36]">{chat.title}</span>
-                      </div>
-                      <div className="mt-1 text-[11px] text-[#8a919d]">{formatTime(chat.updatedAt)}</div>
-                    </>
-                  )}
-                </button>
-
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-                  <Tooltip title={chat.pinnedAt ? '取消置顶' : '置顶'}>
-                    <button
-                      type="button"
-                      className="history-row-action"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        toggleChatPinned(chat.id)
-                      }}
-                    >
-                      <Icon icon="icon-park-outline:pushpin" width={15} height={15} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip title="重命名">
-                    <button
-                      type="button"
-                      className="history-row-action"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        startRename(chat)
-                      }}
-                    >
-                      <Icon icon="icon-park-outline:edit" width={15} height={15} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip title="删除">
-                    <button
-                      type="button"
-                      className="history-row-action history-row-action-danger"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handleDelete(chat)
-                      }}
-                    >
-                      <Icon icon="icon-park-outline:delete" width={15} height={15} />
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-lg border border-dashed border-[#d7dde8] py-8 text-center text-sm text-[#8a919d]">
-            没有找到会话
-          </div>
-        )}
-      </div>
-    </div>
-  )
+    });
+  };
 
   return (
-    <aside className="relative z-40 flex h-screen w-[84px] shrink-0 flex-col items-start bg-[#f8f9fb] px-5 py-4">
-      <div className="mb-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/70 bg-white/90 shadow-[0_10px_30px_rgb(15_23_42_/_0.10)] backdrop-blur">
-        <img src="/brand/icon.png" alt="Nova Desk" className="h-8 w-8 rounded-full object-cover" draggable={false} />
+    <aside className="relative z-40 flex h-screen w-[254px] shrink-0 flex-col border-r border-[#dfe4ec] bg-[#f8f9fb] px-3 py-4 text-[#273142]">
+      {/* <div className="mb-4 flex h-9 items-center px-2">
+        <img
+          src="/brand/icon.png"
+          alt="Nova Desk"
+          className="h-7 w-7 rounded-md object-cover"
+          draggable={false}
+        />
+      </div> */}
+
+      <nav className="space-y-1">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          const active = item.panel ? activePanel === item.panel : false;
+
+          return (
+            <button
+              key={item.label}
+              type="button"
+              className={`flex h-9 w-full items-center gap-3 rounded-md px-2 text-left text-sm transition ${
+                active
+                  ? "bg-[#e8ecf4] text-[#151922]"
+                  : "text-[#273142] hover:bg-[#eef1f5]"
+              }`}
+              onClick={() => {
+                if (item.to) {
+                  navigate(item.to);
+                  return;
+                }
+
+                item.onClick?.();
+              }}
+            >
+              <Icon size={16} className="shrink-0 text-[#5d6675]" />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.shortcut ? (
+                <span className="text-xs text-[#9aa2af]">{item.shortcut}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="mt-5 flex min-h-0 flex-1 flex-col">
+        <div className="mb-2 flex h-7 items-center justify-between px-2 text-xs text-[#8a919d]">
+          <span>历史对话</span>
+          <Archive size={14} />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {visibleChats.length > 0 ? (
+            <div className="space-y-1">
+              {visibleChats.map((chat) => (
+                <HistoryRow
+                  key={chat.id}
+                  active={chat.id === activeChatId}
+                  chat={chat}
+                  draftTitle={draftTitle}
+                  editing={editingId === chat.id}
+                  onDelete={handleDelete}
+                  onDraftTitleChange={setDraftTitle}
+                  onRename={startRename}
+                  onRenameCancel={() => {
+                    setEditingId(null);
+                    setDraftTitle("");
+                  }}
+                  onRenameCommit={commitRename}
+                  onSelect={handleSelectChat}
+                  onTogglePinned={toggleChatPinned}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="px-7 py-2 text-sm text-[#9aa2af]">暂无任务</div>
+          )}
+        </div>
       </div>
 
-      <nav className="flex flex-1 flex-col items-start gap-3">
-        <RailButton label="新对话" icon="icon-park-outline:add-one" onClick={handleNewChat} />
+      <div className="mt-3 flex justify-start border-t border-[#e5e9f0] pt-2">
+        <button
+          type="button"
+          aria-label="设置"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[#6f7785] hover:bg-[#eef1f5] hover:text-primary"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings size={15} />
+        </button>
+      </div>
+    </aside>
+  );
+};
 
+const HistoryRow = ({
+  active,
+  chat,
+  draftTitle,
+  editing,
+  onDelete,
+  onDraftTitleChange,
+  onRename,
+  onRenameCancel,
+  onRenameCommit,
+  onSelect,
+  onTogglePinned,
+}: {
+  active: boolean;
+  chat: ChatSession;
+  draftTitle: string;
+  editing: boolean;
+  onDelete: (chat: ChatSession) => void;
+  onDraftTitleChange: (value: string) => void;
+  onRename: (chat: ChatSession) => void;
+  onRenameCancel: () => void;
+  onRenameCommit: () => void;
+  onSelect: (chatId: string) => void;
+  onTogglePinned: (chatId: string) => void;
+}) => {
+  const actionPanel = (
+    <div className="w-32 py-1">
+      <BubbleAction
+        icon={chat.pinnedAt ? PinOff : Pin}
+        label={chat.pinnedAt ? "取消置顶" : "置顶"}
+        onClick={() => onTogglePinned(chat.id)}
+      />
+      <BubbleAction
+        icon={Pencil}
+        label="重命名"
+        onClick={() => onRename(chat)}
+      />
+      <BubbleAction
+        danger
+        icon={Trash2}
+        label="删除"
+        onClick={() => onDelete(chat)}
+      />
+    </div>
+  );
+
+  return (
+    <div
+      className={`group flex h-8 items-center gap-1 rounded-md px-2 transition ${
+        active
+          ? "bg-[#e8ecf4] text-[#151922]"
+          : "text-[#667085] hover:bg-[#eef1f5] hover:text-[#273142]"
+      }`}
+    >
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        onClick={() => {
+          if (!editing) {
+            onSelect(chat.id);
+          }
+        }}
+      >
+        {chat.pinnedAt ? (
+          <Pin size={12} className="shrink-0 text-[#9aa7ff]" />
+        ) : null}
+        {editing ? (
+          <Input
+            autoFocus
+            size="small"
+            value={draftTitle}
+            onBlur={onRenameCommit}
+            onChange={(event) => onDraftTitleChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                onRenameCancel();
+              }
+            }}
+            onPressEnter={onRenameCommit}
+          />
+        ) : (
+          <span className="truncate text-sm">{chat.title}</span>
+        )}
+      </button>
+
+      {!editing ? (
         <Popover
-          align={{ offset: [12, 0] }}
           arrow={false}
-          classNames={{ root: 'history-popover' }}
-          content={historyPanel}
-          open={historyOpen}
+          content={actionPanel}
           placement="rightTop"
           trigger="click"
-          onOpenChange={(open) => {
-            if (!open && (editingId || deleteConfirmOpen)) {
-              return
-            }
-
-            setHistoryOpen(open)
-          }}
+          classNames={{ root: "history-action-popover" }}
         >
           <button
             type="button"
-            aria-label="历史会话"
-            className={`left-rail-action ${historyOpen ? 'left-rail-action-active' : ''}`}
+            aria-label="会话操作"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#e1e6ef] text-[#6f7785] opacity-0 transition hover:bg-[#d8dee9] hover:text-[#273142] group-hover:opacity-100"
+            onClick={(event) => event.stopPropagation()}
           >
-            <Icon icon="icon-park-outline:history" width={20} height={20} />
+            <MoreHorizontal size={15} />
           </button>
         </Popover>
+      ) : null}
+    </div>
+  );
+};
 
-        <div className="my-1 h-px w-11 bg-[#dfe4ec]" />
-
-        {menuItems.map((item) => (
-          <RailButton
-            key={item.label}
-            active={activePanel === item.panel}
-            label={item.label}
-            icon={item.icon}
-            onClick={() => navigate(item.to)}
-          />
-        ))}
-      </nav>
-
-      <RailButton label="设置" icon="icon-park-outline:setting-two" onClick={() => setSettingsOpen(true)} />
-    </aside>
-  )
-}
-
-const RailButton = ({
-  active,
-  icon,
+const BubbleAction = ({
+  danger,
+  icon: Icon,
   label,
   onClick,
 }: {
-  active?: boolean
-  icon: string
-  label: string
-  onClick?: () => void
+  danger?: boolean;
+  icon: typeof Pin;
+  label: string;
+  onClick: () => void;
 }) => (
-  <Tooltip title={label} placement="right">
-    <button
-      type="button"
-      aria-label={label}
-      className={`left-rail-action ${active ? 'left-rail-action-active' : ''}`}
-      onClick={onClick}
-    >
-      <Icon icon={icon} width={20} height={20} />
-    </button>
-  </Tooltip>
-)
+  <button
+    type="button"
+    className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition ${
+      danger
+        ? "text-red-500 hover:bg-red-50"
+        : "text-[#273142] hover:bg-[#f4f6fa]"
+    }`}
+    onClick={onClick}
+  >
+    <Icon size={14} />
+    <span>{label}</span>
+  </button>
+);
