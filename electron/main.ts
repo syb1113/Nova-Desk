@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import fsPromises from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -46,6 +47,120 @@ type HermesChatRequest = {
 type HermesChatResponse = {
   text: string
   sessionId: string | null
+}
+
+type SkillFsFile = {
+  path: string
+  content: string
+}
+
+type SkillPackagePayload = {
+  packageId: string
+  files: SkillFsFile[]
+}
+
+const textSkillFileExtensions = new Set(['.md', '.txt', '.json', '.yaml', '.yml'])
+const maxSkillFileBytes = 1024 * 1024
+const maxSkillPackageBytes = 8 * 1024 * 1024
+
+const getSkillsRoot = () => path.join(app.getPath('userData'), 'skills')
+
+const isPathInside = (parent: string, child: string) => {
+  const relative = path.relative(parent, child)
+  return Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
+const assertSafePackageId = (packageId: string) => {
+  if (!/^[a-zA-Z0-9._-]+$/.test(packageId)) {
+    throw new Error('Invalid skill package id.')
+  }
+}
+
+const resolveSkillPackageDir = (packageId: string) => {
+  assertSafePackageId(packageId)
+  const root = path.resolve(getSkillsRoot())
+  const packageDir = path.resolve(root, packageId)
+
+  if (!isPathInside(root, packageDir)) {
+    throw new Error('Skill package path escapes the skills root.')
+  }
+
+  return packageDir
+}
+
+const resolveSkillFilePath = (packageDir: string, relativePath: string) => {
+  if (!relativePath || relativePath.includes('\0')) {
+    throw new Error('Invalid skill file path.')
+  }
+
+  const normalized = path.normalize(relativePath.replace(/\\/g, '/'))
+  if (path.isAbsolute(normalized) || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+    throw new Error('Skill file path escapes the package directory.')
+  }
+
+  const filePath = path.resolve(packageDir, normalized)
+  if (!isPathInside(packageDir, filePath)) {
+    throw new Error('Skill file path escapes the package directory.')
+  }
+
+  return filePath
+}
+
+const shouldReadSkillTextFile = (filePath: string) => textSkillFileExtensions.has(path.extname(filePath).toLowerCase())
+
+const readSkillFilesRecursive = async (rootDir: string, currentDir = rootDir, byteBudget = { used: 0 }): Promise<SkillFsFile[]> => {
+  const entries = await fsPromises.readdir(currentDir, { withFileTypes: true })
+  const files: SkillFsFile[] = []
+
+  for (const entry of entries) {
+    if (entry.name === '.git' || entry.name === 'node_modules') {
+      continue
+    }
+
+    const absolutePath = path.join(currentDir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...(await readSkillFilesRecursive(rootDir, absolutePath, byteBudget)))
+      continue
+    }
+
+    if (!entry.isFile() || !shouldReadSkillTextFile(absolutePath)) {
+      continue
+    }
+
+    const stat = await fsPromises.stat(absolutePath)
+    if (stat.size > maxSkillFileBytes || byteBudget.used + stat.size > maxSkillPackageBytes) {
+      continue
+    }
+
+    byteBudget.used += stat.size
+    files.push({
+      path: path.relative(rootDir, absolutePath).replace(/\\/g, '/'),
+      content: await fsPromises.readFile(absolutePath, 'utf8'),
+    })
+  }
+
+  return files
+}
+
+const writeSkillPackage = async ({ packageId, files }: SkillPackagePayload) => {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error('Skill package has no files to write.')
+  }
+
+  const packageDir = resolveSkillPackageDir(packageId)
+  await fsPromises.rm(packageDir, { recursive: true, force: true })
+  await fsPromises.mkdir(packageDir, { recursive: true })
+
+  for (const file of files) {
+    const targetPath = resolveSkillFilePath(packageDir, file.path)
+    await fsPromises.mkdir(path.dirname(targetPath), { recursive: true })
+    await fsPromises.writeFile(targetPath, file.content, 'utf8')
+  }
+
+  return {
+    id: packageId,
+    rootPath: packageDir,
+  }
 }
 
 const getApiMode = (provider?: string, protocol?: string) => {
@@ -304,6 +419,61 @@ app.whenReady().then(async () => {
       }
     }),
   )
+
+  ipcMain.handle('skills:get-root', async () => {
+    const root = getSkillsRoot()
+    await fsPromises.mkdir(root, { recursive: true })
+    return root
+  })
+
+  ipcMain.handle('skills:list-packages', async () => {
+    const root = getSkillsRoot()
+    await fsPromises.mkdir(root, { recursive: true })
+    const entries = await fsPromises.readdir(root, { withFileTypes: true })
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  })
+
+  ipcMain.handle('skills:read-package', async (_event, packageId: string) => {
+    const packageDir = resolveSkillPackageDir(packageId)
+    const files = await readSkillFilesRecursive(packageDir)
+    return {
+      id: packageId,
+      rootPath: packageDir,
+      files,
+    }
+  })
+
+  ipcMain.handle('skills:write-package', async (_event, payload: SkillPackagePayload) => writeSkillPackage(payload))
+
+  ipcMain.handle('skills:delete-package', async (_event, packageId: string) => {
+    const packageDir = resolveSkillPackageDir(packageId)
+    await fsPromises.rm(packageDir, { recursive: true, force: true })
+  })
+
+  ipcMain.handle('skills:select-folder', async () => {
+    const result = await dialog.showOpenDialog({
+      title: '选择技能文件夹',
+      properties: ['openDirectory'],
+    })
+
+    if (result.canceled || !result.filePaths[0]) {
+      return null
+    }
+
+    const rootPath = result.filePaths[0]
+    return {
+      rootPath,
+      name: path.basename(rootPath),
+      files: await readSkillFilesRecursive(rootPath),
+    }
+  })
+
+  ipcMain.handle('skills:reveal-root', async () => {
+    const root = getSkillsRoot()
+    await fsPromises.mkdir(root, { recursive: true })
+    await shell.openPath(root)
+    return root
+  })
 
   await createMainWindow()
 

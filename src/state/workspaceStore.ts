@@ -27,6 +27,7 @@ type WorkspaceStore = {
   chatSessions: ChatSession[]
   isSettingsOpen: boolean
   modelConfigs: Record<ModelProviderId, ModelProviderConfig>
+  streamingChatIds: Set<string>
   activeChat: () => ChatSession
   appendMessage: (chatId: string, message: ChatMessage) => void
   createChat: () => string
@@ -39,6 +40,7 @@ type WorkspaceStore = {
   setActiveProvider: (provider: ModelProviderId) => void
   setActiveTheme: (theme: ThemeMode) => void
   setChatHermesSessionId: (chatId: string, sessionId: string | null) => void
+  setChatStreaming: (chatId: string, streaming: boolean) => void
   setSettingsOpen: (open: boolean) => void
   toggleChatPinned: (chatId: string) => void
   updateMessage: (chatId: string, messageId: string, updater: (message: ChatMessage) => ChatMessage) => void
@@ -76,6 +78,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       chatSessions: [initialChat],
       isSettingsOpen: false,
       modelConfigs: defaultModelConfigs,
+      streamingChatIds: new Set(),
       activeChat: () => {
         const state = get()
         return state.chatSessions.find((chat) => chat.id === state.activeChatId) ?? state.chatSessions[0] ?? initialChat
@@ -152,6 +155,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             chat.id === chatId ? touchChat({ ...chat, hermesSessionId }) : chat,
           ),
         })),
+      setChatStreaming: (chatId, streaming) =>
+        set((state) => {
+          const next = new Set(state.streamingChatIds)
+
+          if (streaming) {
+            next.add(chatId)
+          } else {
+            next.delete(chatId)
+          }
+
+          return { streamingChatIds: next }
+        }),
       setSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
       toggleChatPinned: (chatId) =>
         set((state) => ({

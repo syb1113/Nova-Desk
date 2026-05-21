@@ -1,5 +1,5 @@
-import { Check, ChevronDown, Loader2, Mic, Package, Plus, Send, Sparkles } from 'lucide-react'
-import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronDown, Loader2, Mic, Plus, Send, Sparkles } from 'lucide-react'
+import { FormEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLocation } from 'react-router-dom'
@@ -8,7 +8,109 @@ import { getConfiguredModelOptions, type ConfiguredModelOption } from '../config
 import { useSkillStore } from '../state/skillStore'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { SkillsPage } from '../skills/SkillsPage'
-import type { AppliedSkill, SkillConfig } from '../types/skill'
+import type { AppliedSkill } from '../types/skill'
+
+/* ── @ mention fuzzy match helpers ──────────────────────────────────────── */
+
+interface MentionableSkill {
+  id: string
+  name: string
+  description?: string
+}
+
+interface FuzzyResult {
+  score: number
+  highlights: [number, number][]
+}
+
+function fuzzyScore(text: string, query: string): FuzzyResult | null {
+  const lowerText = text.toLowerCase()
+  const lowerQuery = query.toLowerCase()
+
+  if (!lowerQuery) {
+    return { score: 1, highlights: [] }
+  }
+
+  // Exact substring match — highest priority
+  const subIdx = lowerText.indexOf(lowerQuery)
+  if (subIdx !== -1) {
+    return { score: 200 - subIdx, highlights: [[subIdx, subIdx + lowerQuery.length]] }
+  }
+
+  // Character-by-character fuzzy match
+  let qi = 0
+  let score = 0
+  const highlights: [number, number][] = []
+  let runStart = -1
+
+  for (let i = 0; i < lowerText.length && qi < lowerQuery.length; i++) {
+    if (lowerText[i] === lowerQuery[qi]) {
+      if (runStart === -1) runStart = i
+
+      const isConsecutive = i === runStart || (highlights.length > 0 && i === highlights[highlights.length - 1][1])
+      score += isConsecutive ? 10 : 5
+
+      // Bonus for word-boundary matches
+      if (i === 0 || /[-_/\s]/.test(text[i - 1])) {
+        score += 15
+      }
+
+      qi++
+
+      if (qi >= lowerQuery.length) {
+        highlights.push([runStart, i + 1])
+      }
+    } else if (runStart !== -1 && qi > 0 && highlights.length === 0) {
+      highlights.push([runStart, i])
+      runStart = -1
+    }
+  }
+
+  if (qi < lowerQuery.length) return null
+  return { score, highlights }
+}
+
+function fuzzyFilterSkills(skills: MentionableSkill[], query: string): (MentionableSkill & { nameHighlights: [number, number][] })[] {
+  const results: { skill: MentionableSkill; score: number; nameHighlights: [number, number][] }[] = []
+
+  for (const skill of skills) {
+    const nameResult = fuzzyScore(skill.name, query)
+    const descResult = skill.description ? fuzzyScore(skill.description, query) : null
+
+    const nameScore = nameResult?.score ?? 0
+    const descScore = (descResult?.score ?? 0) * 0.4
+
+    if (nameScore > 0 || descScore > 0) {
+      results.push({
+        skill,
+        score: Math.max(nameScore, descScore),
+        nameHighlights: nameResult?.highlights ?? [],
+      })
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score).map((r) => ({ ...r.skill, nameHighlights: r.nameHighlights }))
+}
+
+/* ── Highlighted name rendering helper ──────────────────────────────────── */
+
+function HighlightedName({ name, highlights }: { name: string; highlights: [number, number][] }) {
+  if (highlights.length === 0) return <>{name}</>
+
+  const parts: React.ReactNode[] = []
+  let cursor = 0
+
+  for (const [start, end] of highlights) {
+    if (start > cursor) parts.push(name.slice(cursor, start))
+    parts.push(<mark key={start} className="bg-transparent text-primary font-semibold underline underline-offset-2">{name.slice(start, end)}</mark>)
+    cursor = end
+  }
+
+  if (cursor < name.length) parts.push(name.slice(cursor))
+  return <>{parts}</>
+}
+
+/* ── Existing helpers ───────────────────────────────────────────────────── */
 
 const createMessage = (
   role: ChatMessage['role'],
@@ -49,6 +151,8 @@ const nextTypewriterChunk = (text: string) => {
   return text.slice(0, Math.min(6, text.length))
 }
 
+/* ── WorkspacePage ──────────────────────────────────────────────────────── */
+
 export const WorkspacePage = () => {
   const location = useLocation()
   const activePanel = new URLSearchParams(location.search).get('panel')
@@ -63,13 +167,12 @@ export const WorkspacePage = () => {
   const setActiveModelSelection = useWorkspaceStore((state) => state.setActiveModelSelection)
   const setSettingsOpen = useWorkspaceStore((state) => state.setSettingsOpen)
   const updateMessage = useWorkspaceStore((state) => state.updateMessage)
-  const streamingChatIds = useWorkspaceStore((state) => state.streamingChatIds)
-  const setChatStreaming = useWorkspaceStore((state) => state.setChatStreaming)
+  // V3: matchSkills 纯内存匹配，loadSkillContents 按需读文件
   const matchSkills = useSkillStore((state) => state.matchSkills)
-  const builtinSkills = useSkillStore((state) => state.builtinSkills)
-  const customSkills = useSkillStore((state) => state.customSkills)
+  const loadSkillContents = useSkillStore((state) => state.loadSkillContents)
+  const enabledPackages = useSkillStore((state) => state.enabledPackages)
   const [input, setInput] = useState('')
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([])
+  const [streamingChatIds, setStreamingChatIds] = useState<Set<string>>(() => new Set())
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const activeChatIdRef = useRef(activeChatId)
@@ -79,16 +182,6 @@ export const WorkspacePage = () => {
   const hasMessages = activeChat.messages.length > 0
   const activeChatIsStreaming = streamingChatIds.has(activeChat.id)
   const configuredModelOptions = useMemo(() => getConfiguredModelOptions(modelConfigs), [modelConfigs])
-  const skillOptions = useMemo(
-    () => [...builtinSkills, ...customSkills].filter((skill) => skill.enabled),
-    [builtinSkills, customSkills],
-  )
-  const selectedSkills = useMemo(
-    () => selectedSkillIds
-      .map((id) => skillOptions.find((skill) => skill.id === id))
-      .filter((skill): skill is SkillConfig => Boolean(skill)),
-    [selectedSkillIds, skillOptions],
-  )
   const activeModelOption = useMemo(
     () =>
       configuredModelOptions.find(
@@ -116,7 +209,17 @@ export const WorkspacePage = () => {
   }, [])
 
   const markChatStreaming = (chatId: string, streaming: boolean) => {
-    setChatStreaming(chatId, streaming)
+    setStreamingChatIds((current) => {
+      const next = new Set(current)
+
+      if (streaming) {
+        next.add(chatId)
+      } else {
+        next.delete(chatId)
+      }
+
+      return next
+    })
   }
 
   const appendToMessage = (chatId: string, messageId: string, chunk: string) => {
@@ -188,9 +291,14 @@ export const WorkspacePage = () => {
       return
     }
 
-    const explicitSkillPrompt = selectedSkills.map((skill) => `@skill:${skill.name}`).join(' ')
-    const promptForSkillMatch = explicitSkillPrompt ? `${explicitSkillPrompt} ${prompt}` : prompt
-    const { applied, injectedContext } = matchSkills(promptForSkillMatch)
+    // V3: 两步匹配 — 先纯内存匹配 triggers，再按需读 SKILL.md
+    const { matches } = matchSkills(prompt)
+    const applied: AppliedSkill[] = matches.length > 0 ? await loadSkillContents(matches) : []
+
+    const injectedContext = applied
+      .map((s) => s.injectedContent)
+      .filter(Boolean)
+      .join('\n\n---\n\n')
 
     const enhancedPrompt = injectedContext
       ? `${injectedContext}\n\n---\n\n${prompt}`
@@ -200,7 +308,6 @@ export const WorkspacePage = () => {
     const promptWithHistory = buildPromptWithHistory(chat.messages, enhancedPrompt)
 
     setInput('')
-    setSelectedSkillIds([])
     markChatStreaming(chatId, true)
     streamQueuesRef.current.set(chatId, '')
     receivedChunkRefs.current.set(chatId, false)
@@ -293,6 +400,11 @@ export const WorkspacePage = () => {
               <ChatComposer
                 activeModel={activeModel}
                 activeModelOption={activeModelOption}
+                mentionableSkills={enabledPackages().map((p) => ({
+                  id: p.id,
+                  name: p.overrides.name ?? p.id,
+                  description: p.overrides.description,
+                }))}
                 canSend={canSend}
                 configuredModelOptions={configuredModelOptions}
                 input={input}
@@ -302,14 +414,6 @@ export const WorkspacePage = () => {
                 onOpenSettings={() => setSettingsOpen(true)}
                 onSelectModel={(option) => setActiveModelSelection(option.provider, option.model)}
                 onSubmit={handleSubmit}
-                selectedSkills={selectedSkills}
-                onSelectSkill={(skill) =>
-                  setSelectedSkillIds((ids) => (ids.includes(skill.id) ? ids : [...ids, skill.id]))
-                }
-                onRemoveSkill={(skillId) =>
-                  setSelectedSkillIds((ids) => ids.filter((id) => id !== skillId))
-                }
-                skillOptions={skillOptions}
               />
             </div>
           )}
@@ -320,6 +424,11 @@ export const WorkspacePage = () => {
             <ChatComposer
               activeModel={activeModel}
               activeModelOption={activeModelOption}
+              mentionableSkills={enabledPackages().map((p) => ({
+                id: p.id,
+                name: p.overrides.name ?? p.id,
+                description: p.overrides.description,
+              }))}
               canSend={canSend}
               configuredModelOptions={configuredModelOptions}
               input={input}
@@ -329,14 +438,6 @@ export const WorkspacePage = () => {
               onOpenSettings={() => setSettingsOpen(true)}
               onSelectModel={(option) => setActiveModelSelection(option.provider, option.model)}
               onSubmit={handleSubmit}
-              selectedSkills={selectedSkills}
-              onSelectSkill={(skill) =>
-                setSelectedSkillIds((ids) => (ids.includes(skill.id) ? ids : [...ids, skill.id]))
-              }
-              onRemoveSkill={(skillId) =>
-                setSelectedSkillIds((ids) => ids.filter((id) => id !== skillId))
-              }
-              skillOptions={skillOptions}
             />
           </div>
         ) : null}
@@ -345,9 +446,12 @@ export const WorkspacePage = () => {
   )
 }
 
+/* ── ChatComposer (with @ mention support) ──────────────────────────────── */
+
 const ChatComposer = ({
   activeModel,
   activeModelOption,
+  mentionableSkills,
   canSend,
   configuredModelOptions,
   input,
@@ -357,13 +461,10 @@ const ChatComposer = ({
   onOpenSettings,
   onSelectModel,
   onSubmit,
-  selectedSkills,
-  onSelectSkill,
-  onRemoveSkill,
-  skillOptions,
 }: {
   activeModel: string
   activeModelOption?: ConfiguredModelOption
+  mentionableSkills: MentionableSkill[]
   canSend: boolean
   configuredModelOptions: ConfiguredModelOption[]
   input: string
@@ -373,61 +474,96 @@ const ChatComposer = ({
   onOpenSettings: () => void
   onSelectModel: (option: ConfiguredModelOption) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  selectedSkills: SkillConfig[]
-  onSelectSkill: (skill: SkillConfig) => void
-  onRemoveSkill: (skillId: string) => void
-  skillOptions: SkillConfig[]
 }) => {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
-  const [slashCaret, setSlashCaret] = useState(input.length)
-  const [activeSkillIndex, setActiveSkillIndex] = useState(0)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const hasMultipleModels = configuredModelOptions.length > 1
   const currentModelLabel = activeModelOption?.model ?? activeModel
-  const slashState = useMemo(() => {
-    const beforeCaret = input.slice(0, slashCaret)
-    const match = beforeCaret.match(/(^|\s)\/([^\s/]*)$/)
 
-    if (!match) {
-      return null
-    }
+  // ── @ mention state ──
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionVisible, setMentionVisible] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const mentionPanelRef = useRef<HTMLDivElement | null>(null)
 
-    return {
-      start: beforeCaret.length - match[2].length - 1,
-      query: match[2].toLowerCase(),
-    }
-  }, [input, slashCaret])
-  const filteredSkillOptions = useMemo(() => {
-    if (!slashState) return []
+  const filteredSkills = useMemo(
+    () => (mentionVisible ? fuzzyFilterSkills(mentionableSkills, mentionQuery) : []),
+    [mentionableSkills, mentionQuery, mentionVisible],
+  )
 
-    return skillOptions
-      .filter((skill) => {
-        const haystack = [skill.name, skill.description, skill.id, ...skill.triggers].join(' ').toLowerCase()
-        return haystack.includes(slashState.query)
+  // ── Detect @ mention in textarea ──
+  const detectMention = useCallback(
+    (value: string, cursorPos: number) => {
+      const before = value.slice(0, cursorPos)
+      const atIdx = before.lastIndexOf('@')
+
+      if (atIdx === -1) {
+        setMentionVisible(false)
+        return
+      }
+
+      // @ must be at start or preceded by whitespace
+      if (atIdx > 0 && !/\s/.test(before[atIdx - 1])) {
+        setMentionVisible(false)
+        return
+      }
+
+      const afterAt = before.slice(atIdx + 1)
+      // Close mention if there's a space in the query
+      if (afterAt.includes(' ')) {
+        setMentionVisible(false)
+        return
+      }
+
+      setMentionQuery(afterAt)
+      setMentionVisible(true)
+      setMentionIndex(0)
+    },
+    [],
+  )
+
+  // ── Apply a skill mention into the input ──
+  const applyMention = useCallback(
+    (skill: MentionableSkill) => {
+      const textarea = inputRef.current
+      if (!textarea) return
+
+      const cursorPos = textarea.selectionStart ?? input.length
+      const before = input.slice(0, cursorPos)
+      const atIdx = before.lastIndexOf('@')
+
+      if (atIdx === -1) return
+
+      const replacement = `${skill.name} `
+      const nextValue = input.slice(0, atIdx) + replacement + input.slice(cursorPos)
+      onChange(nextValue)
+
+      setMentionVisible(false)
+      setMentionQuery('')
+
+      // Restore cursor after the inserted skill name
+      requestAnimationFrame(() => {
+        const pos = atIdx + replacement.length
+        textarea.focus()
+        textarea.setSelectionRange(pos, pos)
       })
-      .slice(0, 8)
-  }, [skillOptions, slashState])
-  const isSkillMenuOpen = Boolean(slashState && filteredSkillOptions.length > 0)
+    },
+    [input, inputRef, onChange],
+  )
 
-  const updateCaretFromTextarea = (textarea: HTMLTextAreaElement) => {
-    setSlashCaret(textarea.selectionStart ?? textarea.value.length)
-  }
+  // ── Close mention panel on outside click ──
+  useEffect(() => {
+    if (!mentionVisible) return
 
-  const selectSkill = (skill: SkillConfig) => {
-    if (!slashState) return
+    const handleOutside = (e: PointerEvent) => {
+      if (mentionPanelRef.current && !mentionPanelRef.current.contains(e.target as Node)) {
+        setMentionVisible(false)
+      }
+    }
 
-    const nextInput = `${input.slice(0, slashState.start)}${input.slice(slashCaret)}`.replace(/\s{2,}/g, ' ')
-    const nextCaret = slashState.start
-
-    onSelectSkill(skill)
-    onChange(nextInput)
-    setSlashCaret(nextCaret)
-    setActiveSkillIndex(0)
-    window.setTimeout(() => {
-      inputRef.current?.focus()
-      inputRef.current?.setSelectionRange(nextCaret, nextCaret)
-    }, 0)
-  }
+    document.addEventListener('pointerdown', handleOutside)
+    return () => document.removeEventListener('pointerdown', handleOutside)
+  }, [mentionVisible])
 
   useEffect(() => {
     if (!isModelMenuOpen) {
@@ -445,112 +581,126 @@ const ChatComposer = ({
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick)
   }, [isModelMenuOpen])
 
-  useEffect(() => {
-    setActiveSkillIndex(0)
-  }, [slashState?.query])
+  // ── Keyboard handler for mention navigation ──
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionVisible && filteredSkills.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setMentionIndex((i) => Math.min(i + 1, filteredSkills.length - 1))
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setMentionIndex((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        applyMention(filteredSkills[mentionIndex])
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMentionVisible(false)
+        return
+      }
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      event.currentTarget.form?.requestSubmit()
+    }
+  }
 
   return (
     <form
       className="relative overflow-visible rounded-2xl border border-[#dfe4ec] bg-white shadow-[0_10px_28px_rgb(17_24_39_/_0.06)]"
       onSubmit={onSubmit}
     >
-      {isSkillMenuOpen ? (
+      {/* ── @ mention popup (shown above textarea) ── */}
+      {mentionVisible && filteredSkills.length > 0 ? (
         <div
-          role="listbox"
-          className="absolute bottom-[calc(100%+8px)] left-0 z-30 w-full overflow-hidden rounded-2xl border border-[#e2e6ee] bg-white py-1.5 shadow-[0_18px_45px_rgb(15_23_42_/_0.14)]"
+          ref={mentionPanelRef}
+          className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-xl border border-[#e5e7eb] bg-white shadow-[0_12px_36px_rgb(15_23_42_/_0.12)]"
         >
-          {filteredSkillOptions.map((skill, index) => {
-            const active = index === activeSkillIndex
-            const sourceLabel = skill.source === 'builtin' ? '内置' : '个人'
+          <div className="flex items-center justify-between border-b border-[#f0f1f3] px-4 py-2">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-[#9ca3af]">
+              {mentionQuery ? `匹配 "${mentionQuery}"` : '可用 Skills'}
+            </span>
+            <span className="text-[10px] text-[#bfc4cd]">
+              {filteredSkills.length} 个结果
+            </span>
+          </div>
 
-            return (
+          <div className="max-h-[220px] overflow-y-auto py-1">
+            {filteredSkills.map((skill, idx) => (
               <button
                 key={skill.id}
                 type="button"
-                role="option"
-                aria-selected={active}
-                className={`flex w-full items-center gap-2 px-4 py-2 text-left transition ${
-                  active ? 'bg-[#f4f6f9]' : 'hover:bg-[#f8fafc]'
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${
+                  idx === mentionIndex ? 'bg-[#f0f4ff]' : 'hover:bg-[#f8f9fb]'
                 }`}
-                onMouseEnter={() => setActiveSkillIndex(index)}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                  selectSkill(skill)
-                }}
+                onClick={() => applyMention(skill)}
+                onMouseEnter={() => setMentionIndex(idx)}
               >
-                <Package size={15} className="shrink-0 text-[#697386]" />
-                <span className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2">
-                  <span className="text-sm font-medium text-[#1f2430]">{skill.name}</span>
-                  <span className="truncate text-xs text-[#7b8494]">{skill.description}</span>
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${
+                  idx === mentionIndex ? 'bg-primary text-white' : 'bg-[#f0f1f3] text-[#9ca3af]'
+                }`}>
+                  /
                 </span>
-                <span className="shrink-0 text-xs text-[#7b8494]">{sourceLabel}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-[#1f2430]">
+                    <HighlightedName name={skill.name} highlights={skill.nameHighlights} />
+                  </span>
+                  {skill.description ? (
+                    <span className="block truncate text-xs text-[#9ca3af]">{skill.description}</span>
+                  ) : null}
+                </span>
+                {idx === mentionIndex ? (
+                  <span className="shrink-0 rounded bg-[#f0f1f3] px-1.5 py-0.5 text-[10px] text-[#9ca3af]">
+                    Enter
+                  </span>
+                ) : null}
               </button>
-            )
-          })}
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3 border-t border-[#f0f1f3] px-4 py-1.5 text-[10px] text-[#bfc4cd]">
+            <span>
+              <kbd className="rounded bg-[#f4f5f6] px-1 py-0.5 text-[#9ca3af]">&uarr;&darr;</kbd> 导航
+            </span>
+            <span>
+              <kbd className="rounded bg-[#f4f5f6] px-1 py-0.5 text-[#9ca3af]">Tab</kbd> 选择
+            </span>
+            <span>
+              <kbd className="rounded bg-[#f4f5f6] px-1 py-0.5 text-[#9ca3af]">Esc</kbd> 关闭
+            </span>
+          </div>
+        </div>
+      ) : mentionVisible && filteredSkills.length === 0 ? (
+        <div
+          ref={mentionPanelRef}
+          className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-xl border border-[#e5e7eb] bg-white px-4 py-5 text-center shadow-[0_12px_36px_rgb(15_23_42_/_0.12)]"
+        >
+          <p className="text-sm text-[#9ca3af]">
+            未找到匹配 "<span className="text-[#1f2430]">{mentionQuery}</span>" 的 Skill
+          </p>
         </div>
       ) : null}
-      {selectedSkills.length > 0 ? (
-        <div className="flex flex-wrap gap-2 border-b border-[#edf0f4] px-5 py-3">
-          {selectedSkills.map((skill) => (
-            <button
-              key={skill.id}
-              type="button"
-              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary/10 px-2.5 text-sm font-medium text-primary transition hover:bg-primary/15"
-              onClick={() => onRemoveSkill(skill.id)}
-              title="点击移除"
-            >
-              <Package size={14} />
-              <span>{skill.name}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+
       <textarea
         ref={inputRef}
-        className={`min-h-20 max-h-44 w-full resize-none border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1] ${
-          selectedSkills.length > 0 ? '' : 'rounded-t-2xl'
-        }`}
+        className="min-h-20 max-h-44 w-full resize-none rounded-t-2xl border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1]"
         placeholder="向 Nova Desk 询问任何事情。输入 @ 使用插件或提及文件"
         rows={3}
         value={input}
         onChange={(event) => {
           onChange(event.target.value)
-          updateCaretFromTextarea(event.target)
+          requestAnimationFrame(() => {
+            detectMention(event.target.value, event.target.selectionStart ?? event.target.value.length)
+          })
         }}
-        onClick={(event) => updateCaretFromTextarea(event.currentTarget)}
-        onKeyUp={(event) => updateCaretFromTextarea(event.currentTarget)}
-        onKeyDown={(event) => {
-          if (isSkillMenuOpen) {
-            if (event.key === 'ArrowDown') {
-              event.preventDefault()
-              setActiveSkillIndex((index) => (index + 1) % filteredSkillOptions.length)
-              return
-            }
-
-            if (event.key === 'ArrowUp') {
-              event.preventDefault()
-              setActiveSkillIndex((index) => (index - 1 + filteredSkillOptions.length) % filteredSkillOptions.length)
-              return
-            }
-
-            if (event.key === 'Enter' || event.key === 'Tab') {
-              event.preventDefault()
-              selectSkill(filteredSkillOptions[activeSkillIndex])
-              return
-            }
-
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              setSlashCaret(0)
-              return
-            }
-          }
-
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            event.currentTarget.form?.requestSubmit()
-          }
-        }}
+        onKeyDown={handleKeyDown}
       />
       <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 rounded-b-2xl border-t border-[#edf0f4] bg-[#f4f6f8] px-4 py-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-[#717782]">
@@ -646,6 +796,8 @@ const ChatComposer = ({
     </form>
   )
 }
+
+/* ── MessageBlock / MarkdownMessage / ThinkingBubble (unchanged) ────────── */
 
 const MessageBlock = ({ message, isStreaming }: { message: ChatMessage; isStreaming: boolean }) => {
   const isUser = message.role === 'user'

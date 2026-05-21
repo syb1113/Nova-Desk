@@ -8,7 +8,12 @@
       "background": "#0B1020",
       "card": "#090C11",
       "border": "#263042",
-      "text": "#FFFFFF"
+      "text": "#FFFFFF",
+      "textSecondary": "#CBD5E1",
+      "textMuted": "#94A3B8",
+      "surface": "#111827",
+      "surfaceHover": "#1F2937",
+      "danger": "#F87171"
     },
     "light": {
       "primary": "#4F6EF7",
@@ -17,7 +22,12 @@
       "background": "#F5F7FB",
       "card": "#FFFFFF",
       "border": "#D8E0F0",
-      "text": "#090C11"
+      "text": "#090C11",
+      "textSecondary": "#374151",
+      "textMuted": "#6B7280",
+      "surface": "#EEF1F5",
+      "surfaceHover": "#E8ECF4",
+      "danger": "#DC2626"
     }
   },
   "fonts": {

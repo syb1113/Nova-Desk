@@ -1,4 +1,5 @@
 import type { ModelRuntimeConfig } from '../config/modelProviders'
+import type { AppliedSkill } from '../types/skill'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
@@ -6,6 +7,7 @@ export type ChatMessage = {
   id: string
   role: ChatRole
   content: string
+  appliedSkills?: AppliedSkill[]
 }
 
 export const sendHermesMessage = async (

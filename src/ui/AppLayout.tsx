@@ -1,13 +1,14 @@
 import { Outlet } from 'react-router-dom'
 import { useEffect } from 'react'
-import { ConfigProvider, theme } from 'antd'
-import { applyTheme } from '../config/theme'
+import { ConfigProvider, theme as antdTheme } from 'antd'
+import { applyTheme, theme as appTheme } from '../config/theme'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { LeftIconMenu } from './LeftIconMenu'
 import { SettingsModal } from './SettingsModal'
 
 export const AppLayout = () => {
   const activeTheme = useWorkspaceStore((state) => state.activeTheme)
+  const palette = appTheme.modes[activeTheme]
 
   useEffect(() => {
     applyTheme(activeTheme)
@@ -16,10 +17,24 @@ export const AppLayout = () => {
   return (
     <ConfigProvider
       theme={{
-        algorithm: activeTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
+        algorithm: activeTheme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          borderRadius: 8,
-          colorPrimary: 'rgb(var(--color-primary))',
+          borderRadius: 12,
+          colorBgBase: palette.card,
+          colorBgContainer: palette.card,
+          colorBgElevated: palette.card,
+          colorBgLayout: palette.background,
+          colorBorder: palette.border,
+          colorBorderSecondary: palette.border,
+          colorError: palette.danger,
+          colorFillAlter: palette.surface,
+          colorFillSecondary: palette.surface,
+          colorPrimary: palette.primary,
+          colorText: palette.text,
+          colorTextSecondary: palette.textSecondary,
+          colorTextTertiary: palette.textMuted,
+          controlItemBgActive: palette.surfaceHover,
+          controlItemBgHover: palette.surface,
           fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
         },
       }}

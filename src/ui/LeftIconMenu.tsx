@@ -2,6 +2,7 @@ import {
   Archive,
   Bot,
   Briefcase,
+  Loader2,
   MessageSquarePlus,
   MoreHorizontal,
   Pin,
@@ -54,6 +55,7 @@ export const LeftIconMenu = () => {
   const setActiveChat = useWorkspaceStore((state) => state.setActiveChat);
   const setSettingsOpen = useWorkspaceStore((state) => state.setSettingsOpen);
   const toggleChatPinned = useWorkspaceStore((state) => state.toggleChatPinned);
+  const streamingChatIds = useWorkspaceStore((state) => state.streamingChatIds);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
 
@@ -139,7 +141,7 @@ export const LeftIconMenu = () => {
   };
 
   return (
-    <aside className="relative z-40 flex h-screen w-[254px] shrink-0 flex-col border-r border-[#dfe4ec] bg-[#f8f9fb] px-3 py-4 text-[#273142]">
+    <aside className="relative z-40 flex h-screen w-[254px] shrink-0 flex-col rounded-r-2xl border-r border-[#dfe4ec] bg-[#f8f9fb] px-3 py-4 text-[#273142]">
       {/* <div className="mb-4 flex h-9 items-center px-2">
         <img
           src="/brand/icon.png"
@@ -158,7 +160,7 @@ export const LeftIconMenu = () => {
             <button
               key={item.label}
               type="button"
-              className={`flex h-9 w-full items-center gap-3 rounded-md px-2 text-left text-sm transition ${
+              className={`flex h-9 w-full items-center gap-3 rounded-lg px-2 text-left text-sm transition ${
                 active
                   ? "bg-[#e8ecf4] text-[#151922]"
                   : "text-[#273142] hover:bg-[#eef1f5]"
@@ -198,6 +200,7 @@ export const LeftIconMenu = () => {
                   chat={chat}
                   draftTitle={draftTitle}
                   editing={editingId === chat.id}
+                  isStreaming={streamingChatIds.has(chat.id)}
                   onDelete={handleDelete}
                   onDraftTitleChange={setDraftTitle}
                   onRename={startRename}
@@ -221,7 +224,7 @@ export const LeftIconMenu = () => {
         <button
           type="button"
           aria-label="设置"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-[#6f7785] hover:bg-[#eef1f5] hover:text-primary"
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-[#6f7785] hover:bg-[#eef1f5] hover:text-primary"
           onClick={() => setSettingsOpen(true)}
         >
           <Settings size={15} />
@@ -236,6 +239,7 @@ const HistoryRow = ({
   chat,
   draftTitle,
   editing,
+  isStreaming,
   onDelete,
   onDraftTitleChange,
   onRename,
@@ -248,6 +252,7 @@ const HistoryRow = ({
   chat: ChatSession;
   draftTitle: string;
   editing: boolean;
+  isStreaming: boolean;
   onDelete: (chat: ChatSession) => void;
   onDraftTitleChange: (value: string) => void;
   onRename: (chat: ChatSession) => void;
@@ -279,7 +284,7 @@ const HistoryRow = ({
 
   return (
     <div
-      className={`group flex h-8 items-center gap-1 rounded-md px-2 transition ${
+      className={`group flex h-8 items-center gap-1 rounded-lg px-2 transition ${
         active
           ? "bg-[#e8ecf4] text-[#151922]"
           : "text-[#667085] hover:bg-[#eef1f5] hover:text-[#273142]"
@@ -294,7 +299,9 @@ const HistoryRow = ({
           }
         }}
       >
-        {chat.pinnedAt ? (
+        {isStreaming ? (
+          <Loader2 size={12} className="shrink-0 animate-spin text-primary" />
+        ) : chat.pinnedAt ? (
           <Pin size={12} className="shrink-0 text-[#9aa7ff]" />
         ) : null}
         {editing ? (
@@ -328,7 +335,7 @@ const HistoryRow = ({
           <button
             type="button"
             aria-label="会话操作"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#e1e6ef] text-[#6f7785] opacity-0 transition hover:bg-[#d8dee9] hover:text-[#273142] group-hover:opacity-100"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#e1e6ef] text-[#6f7785] opacity-0 transition hover:bg-[#d8dee9] hover:text-[#273142] group-hover:opacity-100"
             onClick={(event) => event.stopPropagation()}
           >
             <MoreHorizontal size={15} />
@@ -352,7 +359,7 @@ const BubbleAction = ({
 }) => (
   <button
     type="button"
-    className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition ${
+    className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm transition ${
       danger
         ? "text-red-500 hover:bg-red-50"
         : "text-[#273142] hover:bg-[#f4f6fa]"
