@@ -11,13 +11,14 @@ contextBridge.exposeInMainWorld('novaDesk', {
   deleteSkillPackage: (packageId: string) => ipcRenderer.invoke('skills:delete-package', packageId),
   selectSkillFolder: () => ipcRenderer.invoke('skills:select-folder'),
   revealSkillsRoot: () => ipcRenderer.invoke('skills:reveal-root'),
-  chatWithHermes: (prompt: string, sessionId?: string | null, modelConfig?: unknown) =>
-    ipcRenderer.invoke('hermes:chat', { prompt, sessionId, modelConfig }),
+  chatWithHermes: (prompt: string, sessionId?: string | null, modelConfig?: unknown, attachments?: unknown) =>
+    ipcRenderer.invoke('hermes:chat', { prompt, sessionId, modelConfig, attachments }),
   chatWithHermesStream: (
     prompt: string,
     sessionId: string | null | undefined,
     onChunk: (chunk: string) => void,
     modelConfig?: unknown,
+    attachments?: unknown,
   ) => {
     const requestId = randomUUID()
     const channel = `hermes:chat-stream:${requestId}:chunk`
@@ -26,7 +27,7 @@ contextBridge.exposeInMainWorld('novaDesk', {
     ipcRenderer.on(channel, listener)
 
     return ipcRenderer
-      .invoke('hermes:chat-stream', { prompt, requestId, sessionId, modelConfig })
+      .invoke('hermes:chat-stream', { prompt, requestId, sessionId, modelConfig, attachments })
       .finally(() => {
         ipcRenderer.removeListener(channel, listener)
       })

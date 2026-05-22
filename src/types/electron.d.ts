@@ -1,3 +1,4 @@
+import type { MessageAttachment } from '../api/hermes'
 import type { ModelRuntimeConfig } from '../config/modelProviders'
 
 export type NovaRuntimeInfo = {
@@ -43,12 +44,14 @@ declare global {
         prompt: string,
         sessionId?: string | null,
         modelConfig?: ModelRuntimeConfig,
+        attachments?: MessageAttachment[],
       ) => Promise<HermesChatResponse>
       chatWithHermesStream: (
         prompt: string,
         sessionId: string | null | undefined,
         onChunk: (chunk: string) => void,
         modelConfig?: ModelRuntimeConfig,
+        attachments?: MessageAttachment[],
       ) => Promise<HermesChatResponse>
     }
   }

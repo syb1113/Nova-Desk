@@ -16,6 +16,11 @@ module.exports = {
         card: colorVar('card'),
         border: colorVar('border'),
         text: colorVar('text'),
+        textSecondary: colorVar('textSecondary'),
+        textMuted: colorVar('textMuted'),
+        surface: colorVar('surface'),
+        surfaceHover: colorVar('surfaceHover'),
+        danger: colorVar('danger'),
       },
       boxShadow: {
         panel: '0 24px 80px rgb(15 23 42 / 0.16)',

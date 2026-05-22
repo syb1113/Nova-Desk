@@ -26,6 +26,9 @@ importers:
       antd:
         specifier: 6.4.2
         version: 6.4.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      dayjs:
+        specifier: ^1.11.20
+        version: 1.11.20
       jotai:
         specifier: ^2.15.1
         version: 2.20.0(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@19.2.14)(react@19.2.6)

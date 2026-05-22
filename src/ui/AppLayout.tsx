@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { useEffect } from 'react'
 import { ConfigProvider, theme as antdTheme } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
 import { applyTheme, theme as appTheme } from '../config/theme'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { LeftIconMenu } from './LeftIconMenu'
@@ -16,6 +17,7 @@ export const AppLayout = () => {
 
   return (
     <ConfigProvider
+      locale={zhCN}
       theme={{
         algorithm: activeTheme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {

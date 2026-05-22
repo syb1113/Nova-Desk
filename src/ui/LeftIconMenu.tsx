@@ -2,12 +2,14 @@ import {
   Archive,
   Bot,
   Briefcase,
+  Clock,
   Loader2,
   MessageSquarePlus,
   MoreHorizontal,
   Pin,
   PinOff,
   Pencil,
+  ScrollText,
   Settings,
   Sparkles,
   Trash2,
@@ -93,6 +95,18 @@ export const LeftIconMenu = () => {
       icon: Bot,
       to: `${workspacePath}?panel=automation`,
       panel: "automation",
+    },
+    {
+      label: "定时任务",
+      icon: Clock,
+      to: `${workspacePath}?panel=scheduled-tasks`,
+      panel: "scheduled-tasks",
+    },
+    {
+      label: "运行日志",
+      icon: ScrollText,
+      to: `${workspacePath}?panel=logs`,
+      panel: "logs",
     },
   ];
 

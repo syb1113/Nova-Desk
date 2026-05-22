@@ -6,7 +6,6 @@ import {
   Globe,
   Plus,
   Trash2,
-  Upload,
   Download,
   Search,
   Zap,
@@ -22,7 +21,7 @@ import {
   FolderOpen,
   Package,
 } from 'lucide-react'
-import { Button, Form, Input, Modal, Switch, Tag, Tooltip, message } from 'antd'
+import { Dropdown, Input, Modal, Switch, Tag, Tooltip, message } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createSkillPackageFromFiles,
@@ -41,8 +40,6 @@ import {
 } from '../api/skillFs'
 import { readZipEntries } from '../utils/zipReader'
 import type { SkillConfig } from '../types/skill'
-
-const { TextArea } = Input
 
 const builtinIcons: Record<string, typeof Code2> = {
   'builtin-web-ui': Globe,
@@ -172,58 +169,6 @@ const SkillCard = ({
   )
 }
 
-// ── Add Skill Modal ─────────────────────────────────────────────────────────
-
-const AddSkillModal = ({ open, onClose, onSave }: {
-  open: boolean
-  onClose: () => void
-  onSave: (values: { name: string; description: string; triggers: string; content: string; enabled: boolean }) => void
-}) => {
-  const [form] = Form.useForm()
-
-  useEffect(() => {
-    if (!open) form.resetFields()
-  }, [open, form])
-
-  const handleOk = async () => {
-    try {
-      const values = await form.validateFields()
-      onSave(values)
-    } catch { /* validation failed */ }
-  }
-
-  return (
-    <Modal
-      title="添加自定义技能"
-      open={open}
-      onCancel={onClose}
-      onOk={handleOk}
-      okText="添加"
-      cancelText="取消"
-      width={560}
-      destroyOnHidden
-    >
-      <Form form={form} layout="vertical" className="pt-2" initialValues={{ enabled: true }}>
-        <Form.Item label="技能名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
-          <Input placeholder="例如：API 设计规范" />
-        </Form.Item>
-        <Form.Item label="描述" name="description" rules={[{ required: true, message: '请输入描述' }]}>
-          <Input placeholder="简要描述该技能的用途" />
-        </Form.Item>
-        <Form.Item label="触发词" name="triggers" extra="用逗号分隔，对话命中时自动注入">
-          <Input placeholder="API, REST, 接口设计" />
-        </Form.Item>
-        <Form.Item label="Skill 内容" name="content" rules={[{ required: true, message: '请输入内容' }]}>
-          <TextArea rows={6} placeholder="输入 System Prompt 或指令…" className="font-mono text-sm" />
-        </Form.Item>
-        <Form.Item label="立即启用" name="enabled" valuePropName="checked">
-          <Switch />
-        </Form.Item>
-      </Form>
-    </Modal>
-  )
-}
-
 // ── Test Match Panel ─────────────────────────────────────────────────────────
 
 const TestMatchPanel = () => {
@@ -321,7 +266,6 @@ export const SkillsPage = () => {
 
   const [tab, setTab] = useState<Tab>('skills')
   const [filter, setFilter] = useState<SourceFilter>('all')
-  const [addOpen, setAddOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const allSkills = useMemo(() => [...builtinSkills, ...customSkills], [builtinSkills, customSkills])
@@ -413,28 +357,6 @@ export const SkillsPage = () => {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
     message.success(`已导出：${skill.name}`)
-  }
-
-  const handleAddSave = async (values: {
-    name: string; description: string; triggers: string; content: string; enabled: boolean
-  }) => {
-    const triggers = values.triggers.split(/[,，]/).map((t: string) => t.trim()).filter(Boolean)
-    const quickSkill = {
-      name: values.name,
-      description: values.description,
-      scope: 'global',
-      autoMatch: true,
-      triggers,
-      content: values.content,
-      packageSource: 'quick',
-      entryFile: 'SKILL.md',
-      files: { 'SKILL.md': values.content },
-      enabled: values.enabled,
-    } satisfies Parameters<typeof upsertSkillPackage>[0]
-
-    const persisted = await persistSkillPackage(quickSkill, toPackageId(values.name))
-    upsertSkillPackage(persisted)
-    setAddOpen(false)
   }
 
   // ── Import: .md / .txt / .zip ─────────────────────────────────────────────
@@ -565,18 +487,38 @@ export const SkillsPage = () => {
                 className="hidden"
                 onChange={handleImportFile}
               />
-              <Button size="small" icon={<Upload size={13} />} onClick={() => fileInputRef.current?.click()}>
-                导入
-              </Button>
-              <Button size="small" icon={<FolderOpen size={13} />} onClick={handleImportFolder}>
-                导入文件夹
-              </Button>
-              <Button size="small" onClick={() => void revealSkillsRoot()}>
-                本地目录
-              </Button>
-              <Button size="small" type="primary" icon={<Plus size={13} />} onClick={() => setAddOpen(true)}>
-                添加技能
-              </Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'file',
+                      icon: <Download size={13} />,
+                      label: '导入文件',
+                      onClick: () => fileInputRef.current?.click(),
+                    },
+                    {
+                      key: 'folder',
+                      icon: <FolderOpen size={13} />,
+                      label: '导入文件夹',
+                      onClick: handleImportFolder,
+                    },
+                    {
+                      key: 'local',
+                      icon: <FolderOpen size={13} />,
+                      label: '本地目录',
+                      onClick: () => void revealSkillsRoot(),
+                    },
+                  ],
+                }}
+              >
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition hover:bg-primary/90"
+                >
+                  <Plus size={13} />
+                  添加技能
+                </button>
+              </Dropdown>
             </div>
           </div>
 
@@ -642,7 +584,7 @@ export const SkillsPage = () => {
                   <p className="text-sm text-[#9ca3af]">
                     {filter === 'custom' ? '暂无自定义技能' : '暂无技能'}
                   </p>
-                  <p className="mt-1 text-xs text-[#c4c9d4]">点击「添加技能」或「导入」开始</p>
+                  <p className="mt-1 text-xs text-[#c4c9d4]">点击「添加技能」导入文件或文件夹</p>
                 </div>
               )}
             </>
@@ -710,7 +652,6 @@ export const SkillsPage = () => {
         </div>
       </div>
 
-      <AddSkillModal open={addOpen} onClose={() => setAddOpen(false)} onSave={handleAddSave} />
     </section>
   )
 }
