@@ -34,13 +34,21 @@ export const sendHermesMessage = async (
     throw new Error(err)
   }
 
+  const imageAttachments = (attachments ?? []).filter((a) => a.type === 'image' && a.dataUrl)
+
   logger.info('hermes', '请求发送', {
     provider: modelConfig?.provider,
     model: modelConfig?.activeModel,
     prompt,
     sessionId,
-    attachmentCount: attachments?.length ?? 0,
-    imageAttachmentCount: attachments?.filter((attachment) => attachment.type === 'image' && attachment.dataUrl).length ?? 0,
+    totalAttachments: attachments?.length ?? 0,
+    imageCount: imageAttachments.length,
+    imageDataUrls: imageAttachments.map((a) => ({
+      name: a.name,
+      mimeType: a.mimeType,
+      dataUrlLength: a.dataUrl?.length ?? 0,
+      dataUrlPrefix: a.dataUrl?.slice(0, 50),
+    })),
   })
 
   try {
@@ -48,7 +56,12 @@ export const sendHermesMessage = async (
     logger.info('hermes', '请求成功', { response: result?.text })
     return result
   } catch (err) {
-    logger.error('hermes', '请求失败', { error: err instanceof Error ? err.message : String(err) })
+    logger.error('hermes', '请求失败', {
+      error: err instanceof Error ? err.message : String(err),
+      hadImages: imageAttachments.length > 0,
+      model: modelConfig?.activeModel,
+      provider: modelConfig?.provider,
+    })
     throw err
   }
 }
@@ -66,13 +79,21 @@ export const streamHermesMessage = async (
     throw new Error(err)
   }
 
+  const imageAttachments = (attachments ?? []).filter((a) => a.type === 'image' && a.dataUrl)
+
   logger.info('hermes', '流式请求发送', {
     provider: modelConfig?.provider,
     model: modelConfig?.activeModel,
     prompt,
     sessionId,
-    attachmentCount: attachments?.length ?? 0,
-    imageAttachmentCount: attachments?.filter((attachment) => attachment.type === 'image' && attachment.dataUrl).length ?? 0,
+    totalAttachments: attachments?.length ?? 0,
+    imageCount: imageAttachments.length,
+    imageDataUrls: imageAttachments.map((a) => ({
+      name: a.name,
+      mimeType: a.mimeType,
+      dataUrlLength: a.dataUrl?.length ?? 0,
+      dataUrlPrefix: a.dataUrl?.slice(0, 50),
+    })),
   })
 
   try {
@@ -80,7 +101,12 @@ export const streamHermesMessage = async (
     logger.info('hermes', '流式请求完成', { response: result?.text })
     return result
   } catch (err) {
-    logger.error('hermes', '流式请求失败', { error: err instanceof Error ? err.message : String(err) })
+    logger.error('hermes', '流式请求失败', {
+      error: err instanceof Error ? err.message : String(err),
+      hadImages: imageAttachments.length > 0,
+      model: modelConfig?.activeModel,
+      provider: modelConfig?.provider,
+    })
     throw err
   }
 }
