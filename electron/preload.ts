@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { randomUUID } from 'node:crypto'
 
 contextBridge.exposeInMainWorld('novaDesk', {
@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('novaDesk', {
   deleteSkillPackage: (packageId: string) => ipcRenderer.invoke('skills:delete-package', packageId),
   selectSkillFolder: () => ipcRenderer.invoke('skills:select-folder'),
   revealSkillsRoot: () => ipcRenderer.invoke('skills:reveal-root'),
+  getFilePath: (file: File) => webUtils.getPathForFile(file),
+  openPath: (filePath: string) => ipcRenderer.invoke('nova:open-path', filePath),
   chatWithHermes: (prompt: string, sessionId?: string | null, modelConfig?: unknown, attachments?: unknown) =>
     ipcRenderer.invoke('hermes:chat', { prompt, sessionId, modelConfig, attachments }),
   chatWithHermesStream: (

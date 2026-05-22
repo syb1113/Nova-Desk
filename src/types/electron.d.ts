@@ -40,6 +40,8 @@ declare global {
       deleteSkillPackage: (packageId: string) => Promise<void>
       selectSkillFolder: () => Promise<SkillFolderSelection | null>
       revealSkillsRoot: () => Promise<string>
+      getFilePath: (file: File) => string
+      openPath: (filePath: string) => Promise<string>
       chatWithHermes: (
         prompt: string,
         sessionId?: string | null,

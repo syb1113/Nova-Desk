@@ -11,6 +11,7 @@ export type MessageAttachment = {
   mimeType: string
   dataUrl?: string
   textContent?: string
+  filePath?: string
   size: number
 }
 

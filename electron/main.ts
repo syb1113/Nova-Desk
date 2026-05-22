@@ -53,6 +53,7 @@ type HermesChatRequest = {
     mimeType: string;
     dataUrl?: string;
     textContent?: string;
+    filePath?: string;
     size: number;
   }[];
   modelConfig?: {
@@ -696,6 +697,14 @@ app.whenReady().then(async () => {
     version: app.getVersion(),
     platform: process.platform,
   }));
+
+  ipcMain.handle("nova:open-path", async (_event, filePath: string) => {
+    if (!filePath || typeof filePath !== "string") {
+      return "Invalid file path.";
+    }
+
+    return shell.openPath(filePath);
+  });
 
   ipcMain.handle("hermes:chat", (_event, request: HermesChatRequest) =>
     chatWithHermes(request),

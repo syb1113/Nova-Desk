@@ -55,7 +55,11 @@ import { SkillsPage } from "../skills/SkillsPage";
 import { ScheduledTasksPage } from "../scheduled-tasks/ScheduledTasksPage";
 import { LogViewerPage } from "../logs/LogViewerPage";
 import type { AppliedSkill, SkillConfig } from "../types/skill";
-import { NovaAttachmentAdapter } from "./adapters/novaAttachmentAdapter";
+import {
+  getNovaAttachmentFilePath,
+  NovaAttachmentAdapter,
+  rememberNovaAttachmentFilePath,
+} from "./adapters/novaAttachmentAdapter";
 
 const createMessage = (
   role: ChatMessage["role"],
@@ -207,6 +211,14 @@ const attachmentFromUserPart = (
 const attachmentFromCompleteAttachment = (
   attachment: CompleteAttachment,
 ): MessageAttachment[] => {
+  const size = attachment.file?.size ?? 0;
+  const filePath =
+    (attachment as CompleteAttachment & { filePath?: string }).filePath ??
+    getNovaAttachmentFilePath({
+      id: attachment.id,
+      name: attachment.name,
+      size,
+    });
   const fromContent = attachment.content
     .map(attachmentFromUserPart)
     .filter((item): item is MessageAttachment => Boolean(item));
@@ -217,8 +229,16 @@ const attachmentFromCompleteAttachment = (
       id: attachment.id || item.id,
       name: attachment.name || item.name,
       mimeType: attachment.contentType || item.mimeType,
+      filePath,
+      size,
     }));
   }
+
+  const textContent = attachment.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
 
   return [
     {
@@ -226,7 +246,9 @@ const attachmentFromCompleteAttachment = (
       name: attachment.name,
       type: attachment.type === "image" ? "image" : "file",
       mimeType: attachment.contentType || "application/octet-stream",
-      size: 0,
+      size,
+      textContent: textContent || undefined,
+      filePath,
     },
   ];
 };
@@ -250,6 +272,55 @@ const extractMessageAttachments = (message: AppendMessage) => {
   });
 
   return Array.from(byKey.values());
+};
+
+const getComposerAttachmentPath = async (attachment: {
+  id?: string;
+  name: string;
+  type: string;
+  contentType?: string;
+  file?: File;
+  filePath?: string;
+  content?: readonly (
+    | AppendMessage["content"][number]
+    | ThreadUserMessagePart
+  )[];
+}) => {
+  const size = attachment.file?.size;
+  const filePath =
+    attachment.filePath ??
+    getNovaAttachmentFilePath({
+      id: attachment.id,
+      name: attachment.name,
+      size,
+    }) ??
+    (attachment.file
+      ? window.novaDesk?.getFilePath?.(attachment.file)
+      : undefined);
+
+  rememberNovaAttachmentFilePath({
+    id: attachment.id,
+    name: attachment.name,
+    size,
+    filePath,
+  });
+
+  return filePath;
+};
+
+const openAttachmentPath = async (filePath?: string) => {
+  if (!filePath) {
+    logger.warn("attachment", "No local file path available for attachment.");
+    return;
+  }
+
+  const error = await window.novaDesk?.openPath?.(filePath);
+  if (error) {
+    logger.error("attachment", "Failed to open attachment.", {
+      filePath,
+      error,
+    });
+  }
 };
 
 type SessionUsageStats = {
@@ -649,7 +720,8 @@ export const WorkspacePage = () => {
           type: p.type,
           hasImage: p.type === "image" ? Boolean(p.image) : undefined,
           hasData: p.type === "file" ? Boolean(p.data) : undefined,
-          filename: p.type === "image" || p.type === "file" ? p.filename : undefined,
+          filename:
+            p.type === "image" || p.type === "file" ? p.filename : undefined,
         })),
         attachments: message.attachments?.map((attachment) => ({
           id: attachment.id,
@@ -1054,14 +1126,21 @@ const ChatComposer = ({
     if (!slashState) return [];
     return skillOptions
       .filter((skill) => {
-        const haystack = [skill.name, skill.description, skill.id, ...skill.triggers]
+        const haystack = [
+          skill.name,
+          skill.description,
+          skill.id,
+          ...skill.triggers,
+        ]
           .join(" ")
           .toLowerCase();
         return haystack.includes(slashState.query);
       })
       .slice(0, 8);
   }, [skillOptions, slashState]);
-  const isSkillMenuOpen = Boolean(slashState && filteredSkillOptions.length > 0);
+  const isSkillMenuOpen = Boolean(
+    slashState && filteredSkillOptions.length > 0,
+  );
 
   const updateCaretFromTextarea = (textarea: HTMLTextAreaElement) => {
     setSlashCaret(textarea.selectionStart ?? textarea.value.length);
@@ -1069,7 +1148,11 @@ const ChatComposer = ({
 
   const selectSkill = (skill: SkillConfig) => {
     if (!slashState) return;
-    const nextInput = `${input.slice(0, slashState.start)}${input.slice(slashCaret)}`.replace(/\s{2,}/g, " ");
+    const nextInput =
+      `${input.slice(0, slashState.start)}${input.slice(slashCaret)}`.replace(
+        /\s{2,}/g,
+        " ",
+      );
     const nextCaret = slashState.start;
     onSelectSkill(skill);
     onChange(nextInput);
@@ -1084,31 +1167,64 @@ const ChatComposer = ({
   useEffect(() => {
     if (!isModelMenuOpen) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!modelMenuRef.current?.contains(event.target as Node)) setIsModelMenuOpen(false);
+      if (!modelMenuRef.current?.contains(event.target as Node))
+        setIsModelMenuOpen(false);
     };
     document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, [isModelMenuOpen]);
 
-  useEffect(() => { setActiveSkillIndex(0); }, [slashState?.query]);
+  useEffect(() => {
+    setActiveSkillIndex(0);
+  }, [slashState?.query]);
 
-  const buildKeyDown = (showSkillBackspace: boolean): React.KeyboardEventHandler<HTMLTextAreaElement> => (event) => {
-    if (isSkillMenuOpen) {
-      if (event.key === "ArrowDown") { event.preventDefault(); setActiveSkillIndex((i) => (i + 1) % filteredSkillOptions.length); return; }
-      if (event.key === "ArrowUp") { event.preventDefault(); setActiveSkillIndex((i) => (i - 1 + filteredSkillOptions.length) % filteredSkillOptions.length); return; }
-      if (event.key === "Enter" || event.key === "Tab") { event.preventDefault(); selectSkill(filteredSkillOptions[activeSkillIndex]); return; }
-      if (event.key === "Escape") { event.preventDefault(); setSlashCaret(0); return; }
-    }
-    if (showSkillBackspace && event.key === "Backspace" && !input && selectedSkills.length > 0) {
-      event.preventDefault();
-      onRemoveSkill(selectedSkills[selectedSkills.length - 1].id);
-      return;
-    }
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      event.currentTarget.form?.requestSubmit();
-    }
-  };
+  const buildKeyDown =
+    (
+      showSkillBackspace: boolean,
+    ): React.KeyboardEventHandler<HTMLTextAreaElement> =>
+    (event) => {
+      if (isSkillMenuOpen) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setActiveSkillIndex((i) => (i + 1) % filteredSkillOptions.length);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveSkillIndex(
+            (i) =>
+              (i - 1 + filteredSkillOptions.length) %
+              filteredSkillOptions.length,
+          );
+          return;
+        }
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+          selectSkill(filteredSkillOptions[activeSkillIndex]);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setSlashCaret(0);
+          return;
+        }
+      }
+      if (
+        showSkillBackspace &&
+        event.key === "Backspace" &&
+        !input &&
+        selectedSkills.length > 0
+      ) {
+        event.preventDefault();
+        onRemoveSkill(selectedSkills[selectedSkills.length - 1].id);
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        event.currentTarget.form?.requestSubmit();
+      }
+    };
 
   const renderInput = (className: string, showSkillBackspace: boolean) => (
     <ComposerPrimitive.Input
@@ -1117,7 +1233,10 @@ const ChatComposer = ({
       placeholder="向 Nova Desk 询问任何事情…"
       rows={3}
       value={input}
-      onChange={(event) => { onChange(event.target.value); updateCaretFromTextarea(event.target); }}
+      onChange={(event) => {
+        onChange(event.target.value);
+        updateCaretFromTextarea(event.target);
+      }}
       onClick={(event) => updateCaretFromTextarea(event.currentTarget)}
       onKeyUp={(event) => updateCaretFromTextarea(event.currentTarget)}
       onKeyDown={buildKeyDown(showSkillBackspace)}
@@ -1130,103 +1249,192 @@ const ChatComposer = ({
       onSubmit={onSubmit}
     >
       <ComposerPrimitive.AttachmentDropzone className="contents">
-      {isSkillMenuOpen ? (
-        <div role="listbox" className="absolute bottom-[calc(100%+8px)] left-0 z-30 w-full overflow-hidden rounded-2xl border border-[#e2e6ee] bg-white py-1.5 shadow-[0_18px_45px_rgb(15_23_42_/_0.14)]">
-          {filteredSkillOptions.map((skill, index) => {
-            const active = index === activeSkillIndex;
-            return (
-              <button key={skill.id} type="button" role="option" aria-selected={active}
-                className={`flex w-full items-center gap-2 px-4 py-2 text-left transition ${active ? "bg-[#f4f6f9]" : "hover:bg-[#f8fafc]"}`}
-                onMouseEnter={() => setActiveSkillIndex(index)}
-                onMouseDown={(event) => { event.preventDefault(); selectSkill(skill); }}>
-                <Package size={15} className="shrink-0 text-[#697386]" />
-                <span className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2">
-                  <span className="text-sm font-medium text-[#1f2430]">{skill.name}</span>
-                  <span className="truncate text-xs text-[#7b8494]">{skill.description}</span>
-                </span>
-                <span className="shrink-0 text-xs text-[#7b8494]">{skill.source === "builtin" ? "内置" : "个人"}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-      <ComposerPrimitive.Attachments>
-        {({ attachment }) => (
-          <AttachmentPrimitive.Root className="group relative mx-5 mt-3 inline-flex max-w-[220px] items-center gap-2 rounded-lg bg-[#f6f8fb] py-1.5 pl-1.5 pr-2">
-            <AttachmentPreview attachment={attachment} />
-            <span className="min-w-0 flex-1 truncate text-xs text-[#374151]">
-              {attachment.name}
-            </span>
-            <AttachmentPrimitive.Remove className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#9ca3af] opacity-0 transition hover:bg-[#e5e7eb] hover:text-[#374151] group-hover:opacity-100">
-              <X size={10} />
-            </AttachmentPrimitive.Remove>
-          </AttachmentPrimitive.Root>
-        )}
-      </ComposerPrimitive.Attachments>
-      {selectedSkills.length > 0 ? (
-        <div className="min-h-20 px-5 py-4">
-          {selectedSkills.map((skill) => (
-            <span key={skill.id} className="mr-2 inline-flex h-6 items-center gap-1.5 rounded-md px-0 text-sm font-medium text-primary">
-              <Package size={14} /><span>{skill.name}</span>
-            </span>
-          ))}
-          {renderInput("mt-2 block min-h-[64px] max-h-44 w-full resize-none border-0 bg-transparent p-0 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1]", true)}
-        </div>
-      ) : null}
-      {selectedSkills.length === 0 ? renderInput("min-h-20 max-h-44 w-full resize-none rounded-t-2xl border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1]", false) : null}
-      <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 rounded-b-2xl px-4 py-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-[#717782]">
-          <ComposerPrimitive.AddAttachment multiple aria-label="上传文件"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] transition hover:bg-white/70 hover:text-[#1f2937]">
-            <Plus size={16} />
-          </ComposerPrimitive.AddAttachment>
-          <span className="text-[#667085]">Nova Desk</span>
-          <span className="text-[#667085]">本地模式</span>
-          <span className="text-[#667085]">develop</span>
-          <ContextOnlyDisplay stats={sessionUsageStats} />
-          <TokenUsageDisplay stats={sessionUsageStats} />
-        </div>
-        <div className="flex items-center gap-2">
-          <div ref={modelMenuRef} className="relative">
-            {configuredModelOptions.length === 0 ? (
-              <button type="button" className="inline-flex h-8 items-center rounded-lg bg-white px-3 text-sm text-[#4b5563] hover:text-primary" onClick={onOpenSettings}>配置模型</button>
-            ) : (
-              <button type="button" aria-haspopup={hasMultipleModels ? "listbox" : undefined} aria-expanded={hasMultipleModels ? isModelMenuOpen : undefined}
-                className="inline-flex h-8 max-w-[180px] items-center gap-1 rounded-md px-2.5 text-xs text-[#1f2430] transition hover:bg-white/70"
-                onClick={() => { if (hasMultipleModels) setIsModelMenuOpen((open) => !open); }}>
-                <span className="truncate">{currentModelLabel}</span>
-                {hasMultipleModels ? <ChevronDown size={13} /> : null}
-              </button>
-            )}
-            {hasMultipleModels && isModelMenuOpen ? (
-              <div role="listbox" className="absolute bottom-9 left-0 z-20 w-56 overflow-hidden rounded-xl border border-[#e5e7eb] bg-white py-1.5 shadow-[0_18px_45px_rgb(15_23_42_/_0.14)]">
-                {configuredModelOptions.map((option) => {
-                  const selected = activeModelOption?.provider === option.provider && activeModelOption.model === option.model;
-                  return (
-                    <button key={`${option.provider}:${option.model}`} type="button" role="option" aria-selected={selected}
-                      className={`flex w-full items-center justify-between px-4 py-2.5 text-left transition ${selected ? "bg-[#f8fafc]" : "hover:bg-[#f4f6f9]"}`}
-                      onClick={() => { onSelectModel(option); setIsModelMenuOpen(false); }}>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm leading-5 text-[#111827]">{option.model}</span>
-                        <span className="block truncate text-xs leading-4 text-[#6b7280]">{option.providerName}</span>
-                      </span>
-                      {selected ? <Check className="ml-2 shrink-0 text-primary" size={15} /> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-          <button type="button" aria-label="Voice input" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] transition hover:bg-white/70 hover:text-[#1f2937]">
-            <Mic size={15} />
-          </button>
-          <ComposerPrimitive.Send aria-label="Send message"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#69707b] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
+        {isSkillMenuOpen ? (
+          <div
+            role="listbox"
+            className="absolute bottom-[calc(100%+8px)] left-0 z-30 w-full overflow-hidden rounded-2xl border border-[#e2e6ee] bg-white py-1.5 shadow-[0_18px_45px_rgb(15_23_42_/_0.14)]"
           >
-            {isStreaming ? <Loader2 className="animate-spin" size={17} /> : <Send size={16} />}
-          </ComposerPrimitive.Send>
+            {filteredSkillOptions.map((skill, index) => {
+              const active = index === activeSkillIndex;
+              return (
+                <button
+                  key={skill.id}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  className={`flex w-full items-center gap-2 px-4 py-2 text-left transition ${active ? "bg-[#f4f6f9]" : "hover:bg-[#f8fafc]"}`}
+                  onMouseEnter={() => setActiveSkillIndex(index)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    selectSkill(skill);
+                  }}
+                >
+                  <Package size={15} className="shrink-0 text-[#697386]" />
+                  <span className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2">
+                    <span className="text-sm font-medium text-[#1f2430]">
+                      {skill.name}
+                    </span>
+                    <span className="truncate text-xs text-[#7b8494]">
+                      {skill.description}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs text-[#7b8494]">
+                    {skill.source === "builtin" ? "内置" : "个人"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="flex items-center ml-5 mt-3 gap-2">
+          <ComposerPrimitive.Attachments>
+            {({ attachment }) => (
+              <AttachmentPrimitive.Root className="group relative inline-flex max-w-[220px] items-center gap-2 rounded-lg bg-[#f6f8fb] py-1.5 pl-1.5 pr-2">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  title="用系统默认程序打开"
+                  onClick={() => {
+                    void getComposerAttachmentPath(attachment).then(
+                      openAttachmentPath,
+                    );
+                  }}
+                >
+                  <AttachmentPreview attachment={attachment} />
+                  <span className="min-w-0 flex-1 truncate text-xs text-[#374151]">
+                    {attachment.name}
+                  </span>
+                </button>
+                <AttachmentPrimitive.Remove className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#9ca3af] opacity-0 transition hover:bg-[#e5e7eb] hover:text-[#374151] group-hover:opacity-100">
+                  <X size={10} />
+                </AttachmentPrimitive.Remove>
+              </AttachmentPrimitive.Root>
+            )}
+          </ComposerPrimitive.Attachments>
         </div>
-      </div>
+
+        {selectedSkills.length > 0 ? (
+          <div className="min-h-20 px-5 py-4">
+            {selectedSkills.map((skill) => (
+              <span
+                key={skill.id}
+                className="mr-2 inline-flex h-6 items-center gap-1.5 rounded-md px-0 text-sm font-medium text-primary"
+              >
+                <Package size={14} />
+                <span>{skill.name}</span>
+              </span>
+            ))}
+            {renderInput(
+              "mt-2 block min-h-[64px] max-h-44 w-full resize-none border-0 bg-transparent p-0 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1]",
+              true,
+            )}
+          </div>
+        ) : null}
+        {selectedSkills.length === 0
+          ? renderInput(
+              "min-h-20 max-h-44 w-full resize-none rounded-t-2xl border-0 bg-white px-5 py-4 text-sm text-[#1f2430] outline-none placeholder:text-[#aeb5c1]",
+              false,
+            )
+          : null}
+        <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 rounded-b-2xl px-4 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-[#717782]">
+            <ComposerPrimitive.AddAttachment
+              multiple
+              aria-label="上传文件"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] transition hover:bg-white/70 hover:text-[#1f2937]"
+            >
+              <Plus size={16} />
+            </ComposerPrimitive.AddAttachment>
+            <span className="text-[#667085]">Nova Desk</span>
+            <ContextOnlyDisplay stats={sessionUsageStats} />
+            <TokenUsageDisplay stats={sessionUsageStats} />
+          </div>
+          <div className="flex items-center gap-2">
+            <div ref={modelMenuRef} className="relative">
+              {configuredModelOptions.length === 0 ? (
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center rounded-lg bg-white px-3 text-sm text-[#4b5563] hover:text-primary"
+                  onClick={onOpenSettings}
+                >
+                  配置模型
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-haspopup={hasMultipleModels ? "listbox" : undefined}
+                  aria-expanded={
+                    hasMultipleModels ? isModelMenuOpen : undefined
+                  }
+                  className="inline-flex h-8 max-w-[180px] items-center gap-1 rounded-md px-2.5 text-xs text-[#1f2430] transition hover:bg-white/70"
+                  onClick={() => {
+                    if (hasMultipleModels) setIsModelMenuOpen((open) => !open);
+                  }}
+                >
+                  <span className="truncate">{currentModelLabel}</span>
+                  {hasMultipleModels ? <ChevronDown size={13} /> : null}
+                </button>
+              )}
+              {hasMultipleModels && isModelMenuOpen ? (
+                <div
+                  role="listbox"
+                  className="absolute bottom-9 left-0 z-20 w-56 overflow-hidden rounded-xl border border-[#e5e7eb] bg-white py-1.5 shadow-[0_18px_45px_rgb(15_23_42_/_0.14)]"
+                >
+                  {configuredModelOptions.map((option) => {
+                    const selected =
+                      activeModelOption?.provider === option.provider &&
+                      activeModelOption.model === option.model;
+                    return (
+                      <button
+                        key={`${option.provider}:${option.model}`}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={`flex w-full items-center justify-between px-4 py-2.5 text-left transition ${selected ? "bg-[#f8fafc]" : "hover:bg-[#f4f6f9]"}`}
+                        onClick={() => {
+                          onSelectModel(option);
+                          setIsModelMenuOpen(false);
+                        }}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm leading-5 text-[#111827]">
+                            {option.model}
+                          </span>
+                          <span className="block truncate text-xs leading-4 text-[#6b7280]">
+                            {option.providerName}
+                          </span>
+                        </span>
+                        {selected ? (
+                          <Check
+                            className="ml-2 shrink-0 text-primary"
+                            size={15}
+                          />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              aria-label="Voice input"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] transition hover:bg-white/70 hover:text-[#1f2937]"
+            >
+              <Mic size={15} />
+            </button>
+            <ComposerPrimitive.Send
+              aria-label="Send message"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#69707b] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
+            >
+              {isStreaming ? (
+                <Loader2 className="animate-spin" size={17} />
+              ) : (
+                <Send size={16} />
+              )}
+            </ComposerPrimitive.Send>
+          </div>
+        </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
   );
@@ -1271,20 +1479,48 @@ const MessageBlock = ({
           <div className="flex flex-wrap gap-2">
             {message.attachments!.map((att) =>
               att.type === "image" && att.dataUrl ? (
-                <img
+                <button
                   key={att.id}
-                  src={att.dataUrl}
-                  alt={att.name}
-                  className="max-h-40 rounded-xl border border-white/20 object-cover"
-                />
-              ) : (
-                <div
-                  key={att.id}
-                  className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1.5 text-xs text-white/90"
+                  type="button"
+                  className="group/attachment relative overflow-hidden rounded-xl border border-white/20"
+                  title="用系统默认程序打开"
+                  onClick={() =>
+                    void openAttachmentPath(
+                      att.filePath ??
+                        getNovaAttachmentFilePath({
+                          id: att.id,
+                          name: att.name,
+                          size: att.size,
+                        }),
+                    )
+                  }
                 >
-                  <FileText size={12} />
+                  <img
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="max-h-40 object-cover transition group-hover/attachment:brightness-95"
+                  />
+                </button>
+              ) : (
+                <button
+                  key={att.id}
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-lg border border-[#dfe4ec] bg-white px-2.5 py-1.5 text-left text-xs text-[#374151] shadow-sm transition hover:border-primary/40 hover:text-primary"
+                  title="用系统默认程序打开"
+                  onClick={() =>
+                    void openAttachmentPath(
+                      att.filePath ??
+                        getNovaAttachmentFilePath({
+                          id: att.id,
+                          name: att.name,
+                          size: att.size,
+                        }),
+                    )
+                  }
+                >
+                  <FileText size={12} className="text-primary" />
                   <span className="max-w-[100px] truncate">{att.name}</span>
-                </div>
+                </button>
               ),
             )}
           </div>
@@ -1361,6 +1597,81 @@ const MessageActions = () => (
     </ActionBarPrimitive.Root>
   </>
 );
+
+/*
+const AttachmentViewer = ({
+  attachment,
+  onClose,
+}: {
+  attachment: AttachmentViewerData | null;
+  onClose: () => void;
+}) => {
+  if (!attachment) return null;
+
+  const hasText = Boolean(attachment.textContent?.trim());
+  const canPreviewImage = attachment.type === "image" && attachment.dataUrl;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4 py-6"
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={onClose}
+    >
+      <div
+        className="flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_80px_rgb(15_23_42_/_0.28)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex min-h-14 items-center justify-between gap-3 border-b border-[#edf0f4] px-5">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-[#111827]">
+              {attachment.name}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-[#7b8494]">
+              <span>{attachment.mimeType || "unknown"}</span>
+              {typeof attachment.size === "number" && attachment.size > 0 ? (
+                <span>{formatBytes(attachment.size)}</span>
+              ) : null}
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="关闭"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#667085] transition hover:bg-[#f4f6f9] hover:text-[#111827]"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto p-5">
+          {canPreviewImage ? (
+            <img
+              src={attachment.dataUrl}
+              alt={attachment.name}
+              className="mx-auto max-h-[68vh] max-w-full rounded-xl object-contain"
+            />
+          ) : hasText ? (
+            <pre className="max-h-[68vh] overflow-auto whitespace-pre-wrap rounded-xl border border-[#e5e9f0] bg-[#f8fafc] p-4 text-xs leading-5 text-[#1f2937]">
+              {attachment.textContent}
+            </pre>
+          ) : (
+            <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-[#d8dee8] bg-[#f8fafc] px-6 text-center">
+              <FileText size={24} className="mb-3 text-[#9aa4b2]" />
+              <div className="text-sm font-medium text-[#374151]">
+                暂时无法预览文件正文
+              </div>
+              <div className="mt-1 text-xs text-[#7b8494]">
+                已保存文件名、类型和大小，发送时会作为附件信息提供给 agent。
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+*/
 
 const MarkdownMessage = ({ content }: { content: string }) => (
   <div className="markdown-message">
