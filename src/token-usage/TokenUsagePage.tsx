@@ -284,21 +284,10 @@ export const TokenUsagePage = () => {
         </div>
 
         <div className="min-h-0 flex-1 rounded-2xl border border-[#dfe4ec] bg-white p-5 shadow-[0_10px_28px_rgb(17_24_39_/_0.05)]">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-4 flex items-center gap-2">
             <div className="flex items-center gap-2 text-sm font-medium text-[#1f2430]">
               <CalendarDays size={16} className="text-[#667085]" />
               {RANGE_OPTIONS.find((item) => item.key === range)?.label}
-            </div>
-            <div className="flex flex-wrap justify-end gap-3 text-xs text-[#667085]">
-              {series.map((item) => (
-                <span key={item.id} className="inline-flex items-center gap-1.5">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  {item.label}
-                </span>
-              ))}
             </div>
           </div>
           <TokenLineChart buckets={buckets} series={series} />
@@ -339,10 +328,21 @@ const TokenLineChart = ({
         easing: "cubicOut",
       },
       color: series.map((item) => item.color),
+      legend: {
+        bottom: 0,
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 20,
+        icon: "circle",
+        textStyle: {
+          color: "#7b8494",
+          fontSize: 12,
+        },
+      },
       grid: {
         top: 10,
         right: 12,
-        bottom: 32,
+        bottom: 72,
         left: 48,
       },
       tooltip: {
@@ -372,8 +372,7 @@ const TokenLineChart = ({
           const payload = (
             Array.isArray(params) ? params : [params]
           ) as TooltipPoint[];
-          const label =
-            payload[0]?.axisValueLabel ?? payload[0]?.name ?? "";
+          const label = payload[0]?.axisValueLabel ?? payload[0]?.name ?? "";
           const rows = payload
             .filter((item) => Number(item.value ?? 0) > 0)
             .map((item) => {
@@ -404,8 +403,7 @@ const TokenLineChart = ({
         axisLabel: {
           color: "#7b8494",
           fontSize: 11,
-          interval:
-            buckets.length > 16 ? Math.ceil(buckets.length / 8) - 1 : 0,
+          interval: buckets.length > 16 ? Math.ceil(buckets.length / 8) - 1 : 0,
         },
       },
       yAxis: {
@@ -502,7 +500,7 @@ const TokenLineChart = ({
   return (
     <div
       ref={chartRef}
-      className="h-full min-h-[420px] w-full"
+      className="max-h-[550px] w-full"
       role="img"
       aria-label="Token 用量折线图"
     />
