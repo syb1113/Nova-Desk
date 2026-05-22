@@ -46,6 +46,15 @@ const SERIES_COLORS = [
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+type TooltipPoint = {
+  axisValueLabel?: string;
+  name?: string;
+  marker?: string;
+  seriesName?: string;
+  value?: number | string | null;
+  color?: string;
+};
+
 const startOfDay = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
@@ -314,36 +323,75 @@ const TokenLineChart = ({
   series: Series[];
 }) => {
   const chartRef = useRef<HTMLDivElement | null>(null);
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
   const maxValue = Math.max(1, ...series.flatMap((item) => item.values));
   const yMax = Math.ceil(maxValue * 1.12);
+
   const option = useMemo<EChartsOption>(
     () => ({
-      animationDuration: 260,
+      animation: true,
+      animationDuration: 420,
+      animationDurationUpdate: 320,
+      animationEasing: "cubicOut",
+      animationEasingUpdate: "cubicInOut",
+      stateAnimation: {
+        duration: 160,
+        easing: "cubicOut",
+      },
       color: series.map((item) => item.color),
       grid: {
-        top: 24,
-        right: 28,
-        bottom: 48,
-        left: 64,
+        top: 10,
+        right: 12,
+        bottom: 32,
+        left: 48,
       },
       tooltip: {
-        trigger: "item",
-        backgroundColor: "#ffffff",
+        trigger: "axis",
+        confine: true,
+        transitionDuration: 0.16,
+        backgroundColor: "rgba(255,255,255,0.94)",
         borderColor: "#dfe4ec",
         borderWidth: 1,
-        padding: [8, 10],
+        padding: [10, 12],
+        extraCssText:
+          "border-radius:10px;box-shadow:0 14px 34px rgba(15,23,42,.14);backdrop-filter:blur(12px);",
         textStyle: {
           color: "#374151",
           fontSize: 12,
         },
-        formatter: (params) => {
-          const item = Array.isArray(params) ? params[0] : params;
-          const value = Number(item.value ?? 0);
-          const marker = item.marker ?? "";
+        axisPointer: {
+          type: "line",
+          snap: true,
+          lineStyle: {
+            color: "#c8d0dc",
+            width: 1,
+            type: "dashed",
+          },
+        },
+        formatter: (params: unknown) => {
+          const payload = (
+            Array.isArray(params) ? params : [params]
+          ) as TooltipPoint[];
+          const label =
+            payload[0]?.axisValueLabel ?? payload[0]?.name ?? "";
+          const rows = payload
+            .filter((item) => Number(item.value ?? 0) > 0)
+            .map((item) => {
+              const value = Number(item.value ?? 0);
+              return `<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;min-width:160px;margin-top:6px">
+                <span style="display:flex;align-items:center;gap:6px;color:${item.color ?? "#667085"}">
+                  ${item.marker ?? ""}
+                  <span style="color:#374151">${item.seriesName ?? ""}</span>
+                </span>
+                <span style="font-weight:600;color:#111827">${formatTokenCount(value)}</span>
+              </div>`;
+            });
+
           return [
-            `<div style="margin-bottom:4px;color:#7b8494">${item.name}</div>`,
-            `<div style="font-weight:600;color:#111827">${marker}${item.seriesName}</div>`,
-            `<div style="margin-top:4px">${formatTokenCount(value)} tokens</div>`,
+            `<div style="margin-bottom:2px;color:#7b8494;font-weight:500">${label}</div>`,
+            rows.length > 0
+              ? rows.join("")
+              : `<div style="margin-top:6px;color:#7b8494">0 tokens</div>`,
           ].join("");
         },
       },
@@ -352,7 +400,7 @@ const TokenLineChart = ({
         boundaryGap: false,
         data: buckets.map((bucket) => bucket.label),
         axisTick: { show: false },
-        axisLine: { lineStyle: { color: "#dfe4ec" } },
+        axisLine: { show: false },
         axisLabel: {
           color: "#7b8494",
           fontSize: 11,
@@ -365,33 +413,68 @@ const TokenLineChart = ({
         min: 0,
         max: yMax,
         splitNumber: 4,
+        axisTick: { show: false },
+        axisLine: { show: false },
         axisLabel: {
           color: "#7b8494",
           fontSize: 11,
           formatter: (value: number) => formatTokenCount(value),
         },
-        splitLine: { lineStyle: { color: "#edf0f4" } },
-      },
-      series: series.map((item, index) => ({
-        name: item.label,
-        type: "line",
-        data: item.values,
-        smooth: false,
-        showSymbol: true,
-        symbol: "circle",
-        symbolSize: index === 0 && item.id === "total" ? 8 : 7,
-        lineStyle: {
-          width: index === 0 && item.id === "total" ? 3 : 2,
-          opacity: index === 0 && item.id === "total" ? 0.95 : 0.8,
-        },
-        emphasis: {
-          focus: "series",
-          itemStyle: {
-            borderWidth: 2,
-            borderColor: "#ffffff",
+        splitLine: {
+          lineStyle: {
+            color: "#dfe4ec",
+            opacity: 0.55,
+            type: "dashed",
           },
         },
-      })),
+      },
+      series: series.map((item, index) => {
+        const isTotal = item.id === "total";
+        return {
+          name: item.label,
+          type: "line",
+          data: item.values,
+          smooth: true,
+          showSymbol: false,
+          symbol: "circle",
+          symbolSize: isTotal ? 8 : 7,
+          animationDelay: index * 45,
+          animationDelayUpdate: index * 20,
+          lineStyle: {
+            width: isTotal ? 2.5 : 2,
+            opacity: isTotal ? 0.92 : 0.86,
+            cap: "round",
+            join: "round",
+          },
+          areaStyle: isTotal
+            ? undefined
+            : {
+                opacity: 1,
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0.05, color: `${item.color}33` },
+                  { offset: 0.95, color: `${item.color}00` },
+                ]),
+              },
+          itemStyle: {
+            borderWidth: 1.5,
+            borderColor: "#ffffff",
+          },
+          emphasis: {
+            focus: "series",
+            scale: true,
+            itemStyle: {
+              borderWidth: 2.5,
+              borderColor: "#ffffff",
+              shadowBlur: 8,
+              shadowColor: `${item.color}66`,
+            },
+            lineStyle: {
+              width: isTotal ? 3 : 2.5,
+              opacity: 1,
+            },
+          },
+        };
+      }),
     }),
     [buckets, series, yMax],
   );
@@ -400,7 +483,7 @@ const TokenLineChart = ({
     if (!chartRef.current) return;
 
     const chart = echarts.init(chartRef.current);
-    chart.setOption(option);
+    chartInstanceRef.current = chart;
 
     const resize = () => chart.resize();
     window.addEventListener("resize", resize);
@@ -408,7 +491,12 @@ const TokenLineChart = ({
     return () => {
       window.removeEventListener("resize", resize);
       chart.dispose();
+      chartInstanceRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    chartInstanceRef.current?.setOption(option, { notMerge: true });
   }, [option]);
 
   return (
