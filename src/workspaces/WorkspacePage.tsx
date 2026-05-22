@@ -49,11 +49,13 @@ import {
   type ConfiguredModelOption,
 } from "../config/modelProviders";
 import { useSkillStore } from "../state/skillStore";
+import { useTokenUsageStore } from "../state/tokenUsageStore";
 import { useWorkspaceStore } from "../state/workspaceStore";
 import { logger } from "../state/logStore";
 import { SkillsPage } from "../skills/SkillsPage";
 import { ScheduledTasksPage } from "../scheduled-tasks/ScheduledTasksPage";
 import { LogViewerPage } from "../logs/LogViewerPage";
+import { TokenUsagePage } from "../token-usage/TokenUsagePage";
 import type { AppliedSkill, SkillConfig } from "../types/skill";
 import {
   getNovaAttachmentFilePath,
@@ -450,6 +452,7 @@ export const WorkspacePage = () => {
   const updateMessage = useWorkspaceStore((state) => state.updateMessage);
   const streamingChatIds = useWorkspaceStore((state) => state.streamingChatIds);
   const setChatStreaming = useWorkspaceStore((state) => state.setChatStreaming);
+  const addTokenUsageRecord = useTokenUsageStore((state) => state.addRecord);
   const matchSkills = useSkillStore((state) => state.matchSkills);
   const builtinSkills = useSkillStore((state) => state.builtinSkills);
   const customSkills = useSkillStore((state) => state.customSkills);
@@ -669,6 +672,23 @@ export const WorkspacePage = () => {
 
       await waitForTypewriterDrain(chatId);
 
+      addTokenUsageRecord({
+        provider: activeProvider,
+        model: activeModel,
+        inputTokens:
+          estimateTextTokens(promptForModel) +
+          (attachments ?? []).reduce(
+            (sum, attachment) => sum + estimateAttachmentTokens(attachment),
+            0,
+          ),
+        outputTokens: estimateTextTokens(
+          result.text ||
+            activeChat.messages.find((message) => message.id === assistantMessage.id)
+              ?.content ||
+            "",
+        ),
+      });
+
       updateMessage(chatId, assistantMessage.id, (message) =>
         message.content
           ? message
@@ -765,6 +785,10 @@ export const WorkspacePage = () => {
 
   if (activePanel === "logs") {
     return <LogViewerPage />;
+  }
+
+  if (activePanel === "token-usage") {
+    return <TokenUsagePage />;
   }
 
   return (

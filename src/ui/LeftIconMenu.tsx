@@ -1,4 +1,5 @@
 import {
+  Activity,
   Archive,
   Bot,
   Briefcase,
@@ -107,6 +108,12 @@ export const LeftIconMenu = () => {
       icon: ScrollText,
       to: `${workspacePath}?panel=logs`,
       panel: "logs",
+    },
+    {
+      label: "Token 用量",
+      icon: Activity,
+      to: `${workspacePath}?panel=token-usage`,
+      panel: "token-usage",
     },
   ];
 

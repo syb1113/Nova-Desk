@@ -23,6 +23,7 @@
     "@xterm/xterm": "^5.5.0",
     "antd": "6.4.2",
     "dayjs": "^1.11.20",
+    "echarts": "^6.1.0",
     "jotai": "^2.15.1",
     "lucide-react": "^0.552.0",
     "mammoth": "^1.8.0",
