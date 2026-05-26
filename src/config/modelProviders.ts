@@ -10,6 +10,7 @@ export type ModelProviderConfig = {
   protocol: ApiProtocol
   activeModel: string
   models: string[]
+  availableModels?: string[]
 }
 
 export type ModelRuntimeConfig = ModelProviderConfig & {
@@ -88,6 +89,7 @@ export const defaultModelConfigs = Object.fromEntries(
       protocol: provider.defaultProtocol,
       activeModel: provider.defaultModel,
       models: [...provider.models],
+      availableModels: [...provider.models],
     },
   ]),
 ) as Record<ModelProviderId, ModelProviderConfig>

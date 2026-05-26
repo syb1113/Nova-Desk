@@ -23,6 +23,98 @@ export type ChatMessage = {
   attachments?: MessageAttachment[]
 }
 
+type RemoteApiErrorPayload = {
+  error?: {
+    code?: string
+    message?: string
+    param?: string
+    type?: string
+  }
+}
+
+const mutationVerifierMarker = 'File-mutation verifier:'
+
+const stripDiagnosticPrelude = (text: string) =>
+  text.trimEnd().replace(/(?:\r?\n\s*)*⚠(?:\uFE0F)?\s*$/u, '')
+
+export const stripHermesDiagnostics = (text: string) => {
+  const markerIndex = text.indexOf(mutationVerifierMarker)
+  return stripDiagnosticPrelude(markerIndex >= 0 ? text.slice(0, markerIndex) : text).trimEnd()
+}
+
+const createHermesChunkFilter = (onChunk: (chunk: string) => void) => {
+  let buffer = ''
+  let blocked = false
+  const tailLength = mutationVerifierMarker.length + 16
+
+  return {
+    push(chunk: string) {
+      if (blocked || !chunk) {
+        return
+      }
+
+      buffer += chunk
+      const markerIndex = buffer.indexOf(mutationVerifierMarker)
+
+      if (markerIndex >= 0) {
+        const visible = stripDiagnosticPrelude(buffer.slice(0, markerIndex))
+        if (visible) {
+          onChunk(visible)
+        }
+        buffer = ''
+        blocked = true
+        return
+      }
+
+      if (buffer.length <= tailLength) {
+        return
+      }
+
+      const visible = buffer.slice(0, -tailLength)
+      buffer = buffer.slice(-tailLength)
+      onChunk(visible)
+    },
+    flush() {
+      if (!blocked && buffer) {
+        onChunk(buffer)
+      }
+      buffer = ''
+    },
+  }
+}
+
+const parseRemoteApiError = (message: string) => {
+  const jsonStart = message.indexOf('{')
+  const jsonEnd = message.lastIndexOf('}')
+
+  if (jsonStart < 0 || jsonEnd <= jsonStart) {
+    return null
+  }
+
+  try {
+    return JSON.parse(message.slice(jsonStart, jsonEnd + 1)) as RemoteApiErrorPayload
+  } catch {
+    return null
+  }
+}
+
+const toHermesError = (err: unknown, hadImages: boolean) => {
+  const rawMessage = err instanceof Error ? err.message : String(err)
+  const remoteError = parseRemoteApiError(rawMessage)?.error
+  const remoteMessage = remoteError?.message?.trim()
+
+  if (hadImages && remoteMessage?.includes('No endpoints found that support image input')) {
+    return new Error('当前模型不支持图片输入。请切换到支持视觉能力的模型，或移除图片后重试。')
+  }
+
+  if (remoteMessage) {
+    const code = remoteError?.code ? `（${remoteError.code}）` : ''
+    return new Error(`模型接口请求失败${code}：${remoteMessage}`)
+  }
+
+  return err instanceof Error ? err : new Error(rawMessage || 'Hermes Agent request failed.')
+}
+
 export const sendHermesMessage = async (
   prompt: string,
   sessionId?: string | null,
@@ -54,8 +146,12 @@ export const sendHermesMessage = async (
 
   try {
     const result = await window.novaDesk.chatWithHermes(prompt, sessionId, modelConfig, attachments)
-    logger.info('hermes', '请求成功', { response: result?.text })
-    return result
+    const sanitizedResult = {
+      ...result,
+      text: stripHermesDiagnostics(result?.text ?? ''),
+    }
+    logger.info('hermes', '请求成功', { response: sanitizedResult.text })
+    return sanitizedResult
   } catch (err) {
     logger.error('hermes', '请求失败', {
       error: err instanceof Error ? err.message : String(err),
@@ -63,7 +159,7 @@ export const sendHermesMessage = async (
       model: modelConfig?.activeModel,
       provider: modelConfig?.provider,
     })
-    throw err
+    throw toHermesError(err, imageAttachments.length > 0)
   }
 }
 
@@ -98,9 +194,21 @@ export const streamHermesMessage = async (
   })
 
   try {
-    const result = await window.novaDesk.chatWithHermesStream(prompt, sessionId, onChunk, modelConfig, attachments)
-    logger.info('hermes', '流式请求完成', { response: result?.text })
-    return result
+    const chunkFilter = createHermesChunkFilter(onChunk)
+    const result = await window.novaDesk.chatWithHermesStream(
+      prompt,
+      sessionId,
+      (chunk) => chunkFilter.push(chunk),
+      modelConfig,
+      attachments,
+    )
+    chunkFilter.flush()
+    const sanitizedResult = {
+      ...result,
+      text: stripHermesDiagnostics(result?.text ?? ''),
+    }
+    logger.info('hermes', '流式请求完成', { response: sanitizedResult.text })
+    return sanitizedResult
   } catch (err) {
     logger.error('hermes', '流式请求失败', {
       error: err instanceof Error ? err.message : String(err),
@@ -108,6 +216,6 @@ export const streamHermesMessage = async (
       model: modelConfig?.activeModel,
       provider: modelConfig?.provider,
     })
-    throw err
+    throw toHermesError(err, imageAttachments.length > 0)
   }
 }

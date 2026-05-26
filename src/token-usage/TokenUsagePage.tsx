@@ -484,9 +484,13 @@ const TokenLineChart = ({
     chartInstanceRef.current = chart;
 
     const resize = () => chart.resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(chartRef.current);
     window.addEventListener("resize", resize);
+    window.setTimeout(resize, 0);
 
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
       chart.dispose();
       chartInstanceRef.current = null;
@@ -500,7 +504,7 @@ const TokenLineChart = ({
   return (
     <div
       ref={chartRef}
-      className="max-h-[550px] w-full"
+      className="h-full min-h-[320px] max-h-[550px] w-full"
       role="img"
       aria-label="Token 用量折线图"
     />

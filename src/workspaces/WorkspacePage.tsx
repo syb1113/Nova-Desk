@@ -39,6 +39,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useLocation } from "react-router-dom";
 import {
+  stripHermesDiagnostics,
   streamHermesMessage,
   type ChatRole,
   type ChatMessage,
@@ -1699,7 +1700,7 @@ const AttachmentViewer = ({
 
 const MarkdownMessage = ({ content }: { content: string }) => (
   <div className="markdown-message">
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripHermesDiagnostics(content)}</ReactMarkdown>
   </div>
 );
 
