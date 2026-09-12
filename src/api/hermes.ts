@@ -4,6 +4,26 @@ import { logger } from '../state/logStore'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
+export type AgentEvent = {
+  type: 'tool_start' | 'tool_complete' | 'approval' | 'clarify' | 'status'
+  id?: string
+  name?: string
+  args?: unknown
+  result?: string
+  command?: string
+  description?: string
+  question?: string
+  choices?: string[]
+  text?: string
+  answered?: boolean
+}
+
+export type ChatOptions = {
+  requestId?: string
+  testMode?: boolean
+  history?: { role: string; content: string }[]
+}
+
 export type MessageAttachment = {
   id: string
   name: string
@@ -21,6 +41,9 @@ export type ChatMessage = {
   content: string
   appliedSkills?: AppliedSkill[]
   attachments?: MessageAttachment[]
+  status?: 'running' | 'complete' | 'failed' | 'cancelled'
+  error?: string
+  events?: AgentEvent[]
 }
 
 type RemoteApiErrorPayload = {
@@ -169,6 +192,8 @@ export const streamHermesMessage = async (
   onChunk: (chunk: string) => void,
   modelConfig?: ModelRuntimeConfig,
   attachments?: MessageAttachment[],
+  options?: ChatOptions,
+  onEvent?: (event: AgentEvent) => void,
 ) => {
   if (!window.novaDesk?.chatWithHermesStream) {
     const err = 'Hermes Agent streaming is only available inside the Electron desktop app.'
@@ -201,6 +226,8 @@ export const streamHermesMessage = async (
       (chunk) => chunkFilter.push(chunk),
       modelConfig,
       attachments,
+      options,
+      onEvent,
     )
     chunkFilter.flush()
     const sanitizedResult = {
@@ -219,3 +246,8 @@ export const streamHermesMessage = async (
     throw toHermesError(err, imageAttachments.length > 0)
   }
 }
+
+export const cancelHermes = (requestId: string) => window.novaDesk?.cancelHermes(requestId)
+
+export const replyToHermes = (requestId: string, id: string, value: string) =>
+  window.novaDesk?.replyToHermes(requestId, id, value)

@@ -1,9 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  cancelOwner,
+  controlTurn,
+  runHermes,
+  type ChatRequest,
+} from "./hermes-runtime.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -669,6 +676,10 @@ const createMainWindow = async () => {
     },
   });
 
+  const owner = window.webContents.id;
+  window.on("closed", () => void cancelOwner(owner));
+  window.webContents.on("render-process-gone", () => void cancelOwner(owner));
+
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
@@ -706,18 +717,38 @@ app.whenReady().then(async () => {
     return shell.openPath(filePath);
   });
 
-  ipcMain.handle("hermes:chat", (_event, request: HermesChatRequest) =>
-    chatWithHermes(request),
+  const runChat = (event: Electron.IpcMainInvokeEvent, request: ChatRequest) => {
+    const requestId = request.requestId || randomUUID();
+    if (hasAnyImageAttachments(request.attachments as HermesChatRequest["attachments"])) {
+      return chatWithHermes({ ...request, requestId } as HermesChatRequest, (chunk) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(`hermes:event:${requestId}`, { type: "delta", text: chunk });
+        }
+      });
+    }
+    return runHermes(
+      { ...request, requestId },
+      event.sender.id,
+      (data) => {
+        if (!event.sender.isDestroyed()) event.sender.send(`hermes:event:${requestId}`, data);
+      },
+      {
+        vendor: path.join(isDev ? process.cwd() : process.resourcesPath, "vendor"),
+        bridge: path.join(isDev ? process.cwd() : process.resourcesPath, "scripts", "hermes-bridge.py"),
+        data: app.getPath("userData"),
+      },
+    );
+  };
+
+  ipcMain.handle("hermes:chat", (event, request: ChatRequest) =>
+    runChat(event, { ...request, testMode: true }),
   );
-  ipcMain.handle("hermes:chat-stream", (event, request: HermesChatRequest) =>
-    chatWithHermes(request, (chunk) => {
-      if (request.requestId) {
-        event.sender.send(
-          `hermes:chat-stream:${request.requestId}:chunk`,
-          chunk,
-        );
-      }
-    }),
+  ipcMain.handle("hermes:chat-stream", runChat);
+  ipcMain.handle("hermes:cancel", (event, requestId: string) =>
+    controlTurn(event.sender.id, requestId),
+  );
+  ipcMain.handle("hermes:reply", (event, requestId: string, id: string, value: string) =>
+    controlTurn(event.sender.id, requestId, id, value),
   );
 
   ipcMain.handle("skills:get-root", async () => {
@@ -793,4 +824,14 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+let quittingAfterCleanup = false;
+app.on("before-quit", (event) => {
+  if (quittingAfterCleanup) return;
+  event.preventDefault();
+  void cancelOwner().finally(() => {
+    quittingAfterCleanup = true;
+    app.quit();
+  });
 });

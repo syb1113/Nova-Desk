@@ -24,6 +24,7 @@ import {
   Package,
   Plus,
   Send,
+  Square,
   Sparkles,
   X,
 } from "lucide-react";
@@ -41,6 +42,8 @@ import { useLocation } from "react-router-dom";
 import {
   stripHermesDiagnostics,
   streamHermesMessage,
+  cancelHermes,
+  replyToHermes,
   type ChatRole,
   type ChatMessage,
   type MessageAttachment,
@@ -63,6 +66,7 @@ import {
   NovaAttachmentAdapter,
   rememberNovaAttachmentFilePath,
 } from "./adapters/novaAttachmentAdapter";
+import { AgentEvents } from "./components/AgentEvents";
 
 const createMessage = (
   role: ChatMessage["role"],
@@ -450,6 +454,9 @@ export const WorkspacePage = () => {
     (state) => state.setActiveModelSelection,
   );
   const setSettingsOpen = useWorkspaceStore((state) => state.setSettingsOpen);
+  const setChatHermesSessionId = useWorkspaceStore(
+    (state) => state.setChatHermesSessionId,
+  );
   const updateMessage = useWorkspaceStore((state) => state.updateMessage);
   const streamingChatIds = useWorkspaceStore((state) => state.streamingChatIds);
   const setChatStreaming = useWorkspaceStore((state) => state.setChatStreaming);
@@ -465,6 +472,7 @@ export const WorkspacePage = () => {
   const streamQueuesRef = useRef(new Map<string, string>());
   const typewriterRefs = useRef(new Map<string, number>());
   const receivedChunkRefs = useRef(new Map<string, boolean>());
+  const requestIdsRef = useRef(new Map<string, string>());
   const hasMessages = activeChat.messages.length > 0;
   const activeChatIsStreaming = streamingChatIds.has(activeChat.id);
   const configuredModelOptions = useMemo(
@@ -516,8 +524,20 @@ export const WorkspacePage = () => {
     return () => {
       typewriterRefs.current.forEach((timer) => window.clearInterval(timer));
       typewriterRefs.current.clear();
+      for (const requestId of requestIdsRef.current.values()) {
+        void cancelHermes(requestId);
+      }
     };
   }, []);
+
+  useEffect(() =>
+    useWorkspaceStore.subscribe((state) => {
+      for (const [chatId, requestId] of requestIdsRef.current) {
+        if (!state.chatSessions.some((chat) => chat.id === chatId)) {
+          void cancelHermes(requestId);
+        }
+      }
+    }), []);
 
   const markChatStreaming = (chatId: string, streaming: boolean) => {
     setChatStreaming(chatId, streaming);
@@ -598,6 +618,7 @@ export const WorkspacePage = () => {
   const submitPrompt = async (
     rawPrompt: string,
     attachments?: MessageAttachment[],
+    retryMessageId?: string,
   ) => {
     const prompt = rawPrompt.trim();
     const chat = activeChat;
@@ -614,7 +635,7 @@ export const WorkspacePage = () => {
       })),
     });
 
-    if ((!prompt && !attachments?.length) || streamingChatIds.has(chatId)) {
+    if ((!prompt && !attachments?.length) || requestIdsRef.current.has(chatId)) {
       return;
     }
 
@@ -635,15 +656,26 @@ export const WorkspacePage = () => {
       ? `${injectedContext}\n\n---\n\n${promptWithAttachments}`
       : promptWithAttachments;
 
-    const assistantMessage = createMessage("assistant", "");
+    const assistantMessage = retryMessageId
+      ? chat.messages.find((message) => message.id === retryMessageId)
+      : createMessage("assistant", "");
+    if (!assistantMessage) return;
     const hasImageAttachments = Boolean(
       attachments?.some(
         (attachment) => attachment.type === "image" && attachment.dataUrl,
       ),
     );
+    const retryIndex = retryMessageId
+      ? chat.messages.findIndex((message) => message.id === retryMessageId)
+      : -1;
+    const historyMessages = retryIndex >= 1
+      ? chat.messages.slice(0, retryIndex - 1)
+      : chat.messages;
     const promptForModel = hasImageAttachments
-      ? enhancedPrompt
-      : buildPromptWithHistory(chat.messages, enhancedPrompt);
+      ? buildPromptWithHistory(historyMessages, enhancedPrompt)
+      : enhancedPrompt;
+    const requestId = crypto.randomUUID();
+    requestIdsRef.current.set(chatId, requestId);
 
     setInput("");
     setSelectedSkillIds([]);
@@ -651,8 +683,18 @@ export const WorkspacePage = () => {
     streamQueuesRef.current.set(chatId, "");
     receivedChunkRefs.current.set(chatId, false);
     stopTypewriter(chatId);
-    appendMessage(chatId, createMessage("user", prompt, applied, attachments));
-    appendMessage(chatId, assistantMessage);
+    if (retryMessageId) {
+      updateMessage(chatId, assistantMessage.id, (message) => ({
+        ...message,
+        content: "",
+        status: "running",
+        error: undefined,
+        events: [],
+      }));
+    } else {
+      appendMessage(chatId, createMessage("user", prompt, applied, attachments));
+      appendMessage(chatId, { ...assistantMessage, status: "running", events: [] });
+    }
 
     if (chat.title === "新对话") {
       renameChat(chatId, prompt.slice(0, 28));
@@ -661,17 +703,44 @@ export const WorkspacePage = () => {
     try {
       const result = await streamHermesMessage(
         promptForModel,
-        null,
-        (chunk) => enqueueAssistantText(chatId, assistantMessage.id, chunk),
-        getActiveModelConfig(),
+        hasImageAttachments ? null : chat.hermesSessionId,
+        (chunk) => appendToMessage(chatId, assistantMessage.id, chunk),
+        activeModelOption
+          ? {
+              ...modelConfigs[activeModelOption.provider],
+              provider: activeModelOption.provider,
+              activeModel: activeModelOption.model,
+            }
+          : getActiveModelConfig(),
         attachments,
+        {
+          requestId,
+          history:
+            !hasImageAttachments && !chat.hermesSessionId
+              ? historyMessages
+                  .filter((message) =>
+                    message.role !== "system" &&
+                    (!message.status || message.status === "complete"),
+                  )
+                  .map(({ role, content }) => ({ role, content }))
+              : undefined,
+        },
+        (event) => updateMessage(chatId, assistantMessage.id, (message) => {
+          const events = [...(message.events ?? [])];
+          const existing = event.type === "tool_complete"
+            ? events.findIndex((item) => item.type === "tool_start" && item.id === event.id)
+            : -1;
+          if (existing >= 0) events[existing] = event;
+          else events.push(event);
+          return { ...message, events };
+        }),
       );
 
-      if (result.text && !receivedChunkRefs.current.get(chatId)) {
-        enqueueAssistantText(chatId, assistantMessage.id, result.text);
+      if (hasImageAttachments) {
+        setChatHermesSessionId(chatId, null);
+      } else if (result.sessionId) {
+        setChatHermesSessionId(chatId, result.sessionId);
       }
-
-      await waitForTypewriterDrain(chatId);
 
       addTokenUsageRecord({
         provider: activeProvider,
@@ -690,15 +759,11 @@ export const WorkspacePage = () => {
         ),
       });
 
-      updateMessage(chatId, assistantMessage.id, (message) =>
-        message.content
-          ? message
-          : {
-              ...message,
-              content:
-                result.text || "Hermes Agent returned an empty response.",
-            },
-      );
+      updateMessage(chatId, assistantMessage.id, (message) => ({
+        ...message,
+        content: result.text || message.content,
+        status: result.cancelled ? "cancelled" : "complete",
+      }));
     } catch (error) {
       stopTypewriter(chatId);
       streamQueuesRef.current.set(chatId, "");
@@ -709,13 +774,14 @@ export const WorkspacePage = () => {
 
       updateMessage(chatId, assistantMessage.id, (item) => ({
         ...item,
-        role: "system",
-        content: message,
+        status: "failed",
+        error: message,
       }));
     } finally {
       markChatStreaming(chatId, false);
       streamQueuesRef.current.delete(chatId);
       receivedChunkRefs.current.delete(chatId);
+      requestIdsRef.current.delete(chatId);
 
       if (activeChatIdRef.current === chatId) {
         inputRef.current?.focus();
@@ -724,6 +790,24 @@ export const WorkspacePage = () => {
   };
 
   const handleSubmit = () => {};
+
+  const stopActiveChat = () => {
+    const requestId = requestIdsRef.current.get(activeChat.id);
+    if (requestId) void cancelHermes(requestId);
+  };
+
+  const replyToInteraction = async (messageId: string, id: string, value: string) => {
+    const requestId = requestIdsRef.current.get(activeChat.id);
+    if (!requestId || !(await replyToHermes(requestId, id, value))) {
+      throw new Error("请求已结束");
+    }
+    updateMessage(activeChat.id, messageId, (message) => ({
+      ...message,
+      events: message.events?.map((event) =>
+        event.id === id ? { ...event, answered: true } : event,
+      ),
+    }));
+  };
 
   const attachmentAdapter = useMemo(() => new NovaAttachmentAdapter(), []);
 
@@ -823,6 +907,28 @@ export const WorkspacePage = () => {
                     return (
                       <MessageBlock
                         message={sourceMessage}
+                        onReply={(id, value) =>
+                          replyToInteraction(sourceMessage.id, id, value)
+                        }
+                        onRetry={
+                          !activeChatIsStreaming &&
+                          sourceMessage.id === activeChat.messages.at(-1)?.id &&
+                          (sourceMessage.status === "failed" || sourceMessage.status === "cancelled")
+                            ? () => {
+                                const index = activeChat.messages.findIndex(
+                                  (item) => item.id === sourceMessage.id,
+                                );
+                                const userMessage = activeChat.messages[index - 1];
+                                if (userMessage?.role === "user") {
+                                  void submitPrompt(
+                                    userMessage.content,
+                                    userMessage.attachments,
+                                    sourceMessage.id,
+                                  );
+                                }
+                              }
+                            : undefined
+                        }
                         isStreaming={
                           activeChatIsStreaming &&
                           message.id ===
@@ -857,6 +963,7 @@ export const WorkspacePage = () => {
                     setActiveModelSelection(option.provider, option.model)
                   }
                   onSubmit={handleSubmit}
+                  onStop={stopActiveChat}
                   sessionUsageStats={displayedStats}
                   selectedSkills={selectedSkills}
                   onSelectSkill={(skill) =>
@@ -889,6 +996,7 @@ export const WorkspacePage = () => {
                   setActiveModelSelection(option.provider, option.model)
                 }
                 onSubmit={handleSubmit}
+                onStop={stopActiveChat}
                 sessionUsageStats={displayedStats}
                 selectedSkills={selectedSkills}
                 onSelectSkill={(skill) =>
@@ -1111,6 +1219,7 @@ const ChatComposer = ({
   onOpenSettings,
   onSelectModel,
   onSubmit,
+  onStop,
   sessionUsageStats,
   selectedSkills,
   onSelectSkill,
@@ -1126,6 +1235,7 @@ const ChatComposer = ({
   onOpenSettings: () => void;
   onSelectModel: (option: ConfiguredModelOption) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onStop: () => void;
   sessionUsageStats: SessionUsageStats;
   selectedSkills: SkillConfig[];
   onSelectSkill: (skill: SkillConfig) => void;
@@ -1448,16 +1558,23 @@ const ChatComposer = ({
             >
               <Mic size={15} />
             </button>
-            <ComposerPrimitive.Send
-              aria-label="Send message"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#69707b] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
-            >
-              {isStreaming ? (
-                <Loader2 className="animate-spin" size={17} />
-              ) : (
+            {isStreaming ? (
+              <button
+                type="button"
+                aria-label="停止执行"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#69707b] text-white transition hover:bg-primary"
+                onClick={onStop}
+              >
+                <Square size={15} />
+              </button>
+            ) : (
+              <ComposerPrimitive.Send
+                aria-label="Send message"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#69707b] text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:bg-[#c9cdd3]"
+              >
                 <Send size={16} />
-              )}
-            </ComposerPrimitive.Send>
+              </ComposerPrimitive.Send>
+            )}
           </div>
         </div>
       </ComposerPrimitive.AttachmentDropzone>
@@ -1468,9 +1585,13 @@ const ChatComposer = ({
 const MessageBlock = ({
   message,
   isStreaming,
+  onReply,
+  onRetry,
 }: {
   message: ChatMessage;
   isStreaming: boolean;
+  onReply: (id: string, value: string) => Promise<void>;
+  onRetry?: () => void;
 }) => {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -1560,6 +1681,30 @@ const MessageBlock = ({
                   : "bg-transparent text-[#1f2430]"
             }`}
           >
+            {message.events?.length ? (
+              <AgentEvents
+                events={message.events}
+                running={isStreaming}
+                onReply={onReply}
+              />
+            ) : null}
+            {message.error ? (
+              <p role="alert" className="mb-2 text-red-600">{message.error}</p>
+            ) : null}
+            {message.status === "cancelled" ? (
+              <p className="mb-2 text-xs text-[#667085]">
+                已停止。已经执行的工具操作不会自动撤销。
+              </p>
+            ) : null}
+            {onRetry ? (
+              <button
+                type="button"
+                className="mb-2 rounded-lg border border-[#dfe4ec] bg-white px-3 py-1 text-xs"
+                onClick={onRetry}
+              >
+                重试本轮（可能再次执行工具）
+              </button>
+            ) : null}
             {isThinking ? (
               <ThinkingBubble />
             ) : isUser ? (

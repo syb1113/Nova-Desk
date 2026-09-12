@@ -1,4 +1,4 @@
-import type { MessageAttachment } from '../api/hermes'
+import type { AgentEvent, ChatOptions, MessageAttachment } from '../api/hermes'
 import type { ModelRuntimeConfig } from '../config/modelProviders'
 
 export type NovaRuntimeInfo = {
@@ -10,6 +10,7 @@ export type NovaRuntimeInfo = {
 export type HermesChatResponse = {
   text: string
   sessionId: string | null
+  cancelled?: boolean
 }
 
 export type SkillFsFile = {
@@ -48,12 +49,16 @@ declare global {
         modelConfig?: ModelRuntimeConfig,
         attachments?: MessageAttachment[],
       ) => Promise<HermesChatResponse>
+      cancelHermes: (requestId: string) => Promise<boolean>
+      replyToHermes: (requestId: string, id: string, value: string) => Promise<boolean>
       chatWithHermesStream: (
         prompt: string,
         sessionId: string | null | undefined,
         onChunk: (chunk: string) => void,
         modelConfig?: ModelRuntimeConfig,
         attachments?: MessageAttachment[],
+        options?: ChatOptions,
+        onEvent?: (event: AgentEvent) => void,
       ) => Promise<HermesChatResponse>
     }
   }

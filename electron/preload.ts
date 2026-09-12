@@ -21,17 +21,25 @@ contextBridge.exposeInMainWorld('novaDesk', {
     onChunk: (chunk: string) => void,
     modelConfig?: unknown,
     attachments?: unknown,
+    options?: { requestId?: string; testMode?: boolean; history?: unknown[] },
+    onEvent?: (event: { type: string; text?: string }) => void,
   ) => {
-    const requestId = randomUUID()
-    const channel = `hermes:chat-stream:${requestId}:chunk`
-    const listener = (_event: Electron.IpcRendererEvent, chunk: string) => onChunk(chunk)
+    const requestId = options?.requestId || randomUUID()
+    const channel = `hermes:event:${requestId}`
+    const listener = (_event: Electron.IpcRendererEvent, event: { type: string; text?: string }) => {
+      if (event.type === 'delta') onChunk(event.text || '')
+      else onEvent?.(event)
+    }
 
     ipcRenderer.on(channel, listener)
 
     return ipcRenderer
-      .invoke('hermes:chat-stream', { prompt, requestId, sessionId, modelConfig, attachments })
+      .invoke('hermes:chat-stream', { ...options, prompt, requestId, sessionId, modelConfig, attachments })
       .finally(() => {
         ipcRenderer.removeListener(channel, listener)
       })
   },
+  cancelHermes: (requestId: string) => ipcRenderer.invoke('hermes:cancel', requestId),
+  replyToHermes: (requestId: string, id: string, value: string) =>
+    ipcRenderer.invoke('hermes:reply', requestId, id, value),
 })

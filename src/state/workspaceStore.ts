@@ -209,7 +209,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         activeProvider: state.activeProvider,
         activeTheme: state.activeTheme,
         activeChatId: state.activeChatId,
-        chatSessions: state.chatSessions,
+        chatSessions: state.chatSessions.map((chat) => ({ ...chat, messages: chat.messages.map((message) =>
+          message.status === 'running' ? { ...message, status: 'cancelled' as const } : message,
+        ) })),
         modelConfigs: state.modelConfigs,
       }),
     },
